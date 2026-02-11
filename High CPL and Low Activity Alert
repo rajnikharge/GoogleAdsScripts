@@ -1,0 +1,208 @@
+function main() {
+  var EMAIL_RECIPIENT = 'raj.nikharge@gmail.com'; // Replace with your email
+  var TIMEZONE = AdsApp.currentAccount().getTimeZone();
+  var LABELS = {
+    HIGH_CPL: 'High CPL (>5000)',
+    NO_IMPRESSIONS: 'No Impressions Last 6H',
+    NO_SPEND: 'No Spend Last 6H'
+  };
+
+  // Create labels if they don't exist
+  createLabelsIfNeeded(Object.values(LABELS));
+
+  // Clear existing labels across the account to reset
+  removeAllLabelsFromEntities(LABELS.HIGH_CPL, 'campaigns');
+  removeAllLabelsFromEntities(LABELS.HIGH_CPL, 'adgroups');
+  removeAllLabelsFromEntities(LABELS.HIGH_CPL, 'keywords');
+  removeAllLabelsFromEntities(LABELS.NO_IMPRESSIONS, 'campaigns');
+  removeAllLabelsFromEntities(LABELS.NO_SPEND, 'adgroups');
+
+  // Collect alerts
+  var alerts = {
+    highCplCampaigns: [],
+    highCplAdGroups: [],
+    highCplKeywords: [],
+    noImpressionsCampaigns: [],
+    noSpendAdGroups: []
+  };
+
+  // Part 1: High CPL (Last 30 Days)
+  processHighCpl('CAMPAIGN', alerts.highCplCampaigns, LABELS.HIGH_CPL);
+  processHighCpl('ADGROUP', alerts.highCplAdGroups, LABELS.HIGH_CPL);
+  processHighCpl('KEYWORD', alerts.highCplKeywords, LABELS.HIGH_CPL);
+
+  // Part 2: Low Activity Last 6 Hours
+  processLowActivity(alerts, LABELS, TIMEZONE);
+
+  // Send email if there are alerts
+  sendEmailAlert(EMAIL_RECIPIENT, alerts);
+}
+
+// Helper: Create labels if needed
+function createLabelsIfNeeded(labels) {
+  for (var i = 0; i < labels.length; i++) {
+    if (!AdsApp.labels().withCondition('Name = "' + labels[i] + '"').get().hasNext()) {
+      AdsApp.createLabel(labels[i]);
+    }
+  }
+}
+
+// Helper: Remove label from all entities of a type
+function removeAllLabelsFromEntities(labelName, entityType) {
+  var selector;
+  if (entityType === 'campaigns') {
+    selector = AdsApp.campaigns();
+  } else if (entityType === 'adgroups') {
+    selector = AdsApp.adGroups();
+  } else if (entityType === 'keywords') {
+    selector = AdsApp.keywords();
+  }
+  var iterator = selector.withCondition('LabelNames CONTAINS_ANY ["' + labelName + '"]')
+                        .forDateRange('LAST_30_DAYS') 
+                        .get();
+  while (iterator.hasNext()) {
+    var entity = iterator.next();
+    entity.removeLabel(labelName);
+  }
+}
+
+// Helper: Process High CPL for Campaigns, AdGroups, Keywords
+function processHighCpl(entityType, alertArray, labelName) {
+  var selector;
+  if (entityType === 'CAMPAIGN') {
+    selector = AdsApp.campaigns();
+  } else if (entityType === 'ADGROUP') {
+    selector = AdsApp.adGroups();
+  } else if (entityType === 'KEYWORD') {
+    selector = AdsApp.keywords();
+  }
+
+  var iterator = selector.withCondition('Conversions > 0 AND Cost / Conversions > 5000')
+                         .withCondition('Status = ENABLED') 
+                         .forDateRange('LAST_30_DAYS')
+                         .get();
+
+  while (iterator.hasNext()) {
+    var entity = iterator.next();
+    var name = entity.getName();
+    if (entityType === 'KEYWORD') {
+      name = entity.getText(); 
+    }
+    alertArray.push(name);
+    entity.applyLabel(labelName);
+  }
+}
+
+// Helper: Process Low Activity (0 Impressions/Spent in Last 6 Hours)
+function processLowActivity(alerts, LABELS, TIMEZONE) {
+  var now = new Date();
+  var sixHoursAgo = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+  var todayStr = Utilities.formatDate(now, TIMEZONE, 'yyyyMMdd');
+  var sixAgoStr = Utilities.formatDate(sixHoursAgo, TIMEZONE, 'yyyyMMdd');
+  var isSameDay = (todayStr === sixAgoStr);
+
+  var dateRanges = ['TODAY'];
+  if (!isSameDay) {
+    dateRanges.push('YESTERDAY');
+  }
+
+  // Get current hour
+  var currentHour = parseInt(Utilities.formatDate(now, TIMEZONE, 'HH'));
+  var startHour = parseInt(Utilities.formatDate(sixHoursAgo, TIMEZONE, 'HH'));
+
+  // For Campaigns: Impressions
+  var campaignImpressions = getHourlyMetrics('CAMPAIGN_PERFORMANCE_REPORT', 'CampaignId, Impressions, HourOfDay, Date', dateRanges, isSameDay, currentHour, startHour);
+  labelLowActivityEntities(campaignImpressions, alerts.noImpressionsCampaigns, 'campaigns', LABELS.NO_IMPRESSIONS);
+
+  // For AdGroups: Cost
+  var adGroupCosts = getHourlyMetrics('ADGROUP_PERFORMANCE_REPORT', 'AdGroupId, Cost, HourOfDay, Date', dateRanges, isSameDay, currentHour, startHour);
+  labelLowActivityEntities(adGroupCosts, alerts.noSpendAdGroups, 'adgroups', LABELS.NO_SPEND);
+}
+
+// Helper: Fetch hourly metrics using reports
+function getHourlyMetrics(reportType, fields, dateRanges, isSameDay, currentHour, startHour) {
+  var metricsMap = {}; // entityId -> total metric
+
+  for (var i = 0; i < dateRanges.length; i++) {
+    var report = AdsApp.report(
+      'SELECT ' + fields +
+      ' FROM ' + reportType +
+      ' DURING ' + dateRanges[i]
+    );
+    var rows = report.rows();
+    while (rows.hasNext()) {
+      var row = rows.next();
+      var entityId = (reportType.includes('CAMPAIGN')) ? row['CampaignId'] : row['AdGroupId'];
+      var hour = parseInt(row['HourOfDay']);
+      var dateStr = row['Date'].replace(/-/g, ''); // yyyyMMdd
+      var metric = (reportType.includes('CAMPAIGN')) ? parseInt(row['Impressions']) : parseFloat(row['Cost']);
+
+      var include = false;
+      if (dateStr === Utilities.formatDate(new Date(), AdsApp.currentAccount().getTimeZone(), 'yyyyMMdd')) { // Today
+        if (isSameDay) {
+          include = (hour >= startHour && hour <= currentHour);
+        } else {
+          include = (hour <= currentHour);
+        }
+      } else { // Yesterday
+        include = (hour >= startHour);
+      }
+
+      if (include) {
+        if (!metricsMap[entityId]) {
+          metricsMap[entityId] = 0;
+        }
+        metricsMap[entityId] += metric;
+      }
+    }
+  }
+  return metricsMap;
+}
+
+// Helper: Label entities with 0 metric
+function labelLowActivityEntities(metricsMap, alertArray, entityType, labelName) {
+  var selector;
+  if (entityType === 'campaigns') {
+    selector = AdsApp.campaigns();
+  } else if (entityType === 'adgroups') {
+    selector = AdsApp.adGroups();
+  }
+
+  var iterator = selector.withCondition('Status = ENABLED').get();
+  while (iterator.hasNext()) {
+    var entity = iterator.next();
+    var id = entity.getId();
+    var total = metricsMap[id] || 0;
+    if (total === 0) {
+      alertArray.push(entity.getName());
+      entity.applyLabel(labelName);
+    }
+  }
+}
+
+// Helper: Send Email Alert
+function sendEmailAlert(recipient, alerts) {
+  var body = 'Google Ads Alert Summary:\n\n';
+
+  if (alerts.highCplCampaigns.length > 0) {
+    body += 'High CPL Campaigns (>5000):\n' + alerts.highCplCampaigns.join('\n') + '\n\n';
+  }
+  if (alerts.highCplAdGroups.length > 0) {
+    body += 'High CPL Ad Groups (>5000):\n' + alerts.highCplAdGroups.join('\n') + '\n\n';
+  }
+  if (alerts.highCplKeywords.length > 0) {
+    body += 'High CPL Keywords (>5000):\n' + alerts.highCplKeywords.join('\n') + '\n\n';
+  }
+  if (alerts.noImpressionsCampaigns.length > 0) {
+    body += 'Campaigns with 0 Impressions Last 6 Hours:\n' + alerts.noImpressionsCampaigns.join('\n') + '\n\n';
+  }
+  if (alerts.noSpendAdGroups.length > 0) {
+    body += 'Ad Groups with 0 Spend Last 6 Hours:\n' + alerts.noSpendAdGroups.join('\n') + '\n\n';
+  }
+
+  if (body !== 'Google Ads Alert Summary:\n\n') {
+    MailApp.sendEmail(recipient, 'Google Ads High CPL & Low Activity Alert', body);
+  } else {
+    Logger.log('No alerts found.');
+  }
+}
