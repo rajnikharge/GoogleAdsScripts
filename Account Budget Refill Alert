@@ -1,0 +1,34 @@
+function main() {
+  var EMAIL_RECIPIENT = 'raj.nikharge@gmail.com'; // Replace with your google ads email
+  var THRESHOLD = 50000; // Spend threshold for alert add according to your account 5000 or 6000 whatever
+  var TIMEZONE = AdsApp.currentAccount().getTimeZone();
+  
+  var today = new Date();
+  var firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  var dateRange = Utilities.formatDate(firstDayOfMonth, TIMEZONE, 'yyyyMMdd') + ',' + Utilities.formatDate(today, TIMEZONE, 'yyyyMMdd');
+  
+  var report = AdsApp.report(
+    'SELECT Cost ' +
+    'FROM ACCOUNT_PERFORMANCE_REPORT ' +
+    'DURING ' + dateRange
+  );
+  
+  var rows = report.rows();
+  var totalSpend = 0;
+  while (rows.hasNext()) {
+    var row = rows.next();
+    totalSpend += parseFloat(row['Cost']);
+  }
+
+  if (totalSpend >= THRESHOLD) {
+    var subject = 'Google Ads Account Budget Alert: Refill Needed';
+    var body = 'Alert: Your Google Ads account : (Your account name added here ) has reached a spend of ' + totalSpend.toFixed(2) + 
+               ' this month, which exceeds the threshold of ' + THRESHOLD + 
+               '. Please check and refill if necessary to avoid impression loss.';
+    
+    MailApp.sendEmail(EMAIL_RECIPIENT, subject, body);
+    Logger.log('Alert email sent: Spend = ' + totalSpend);
+  } else {
+    Logger.log('Current spend: ' + totalSpend + ' (below threshold)');
+  }
+}
