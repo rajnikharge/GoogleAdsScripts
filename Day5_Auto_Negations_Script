@@ -1,9 +1,9 @@
 function main() {
   var EMAIL = 'nikhargeraj@gmail.com';
-  var SUBJECT = 'Auto-Negated Search Terms Report (Online / Course / Hybrid Keywords)';
-  
-  // Keywords patterns that indicate "online / distance / hybrid / course" intent we want to NEGATE add keywords for your own logic 
-  var unwantedPatterns = [
+  var SUBJECT = 'Auto-Negated Irrelevant (Non-Online/Hybrid/Course) Search Terms Report';
+
+  // Keywords that INDICATE the mode we WANT to KEEP (online / distance / hybrid / course / part-time / evening / weekend etc.) Add keywords according to your own logic for your account
+  var wantedPatterns = [
     'online',
     'distance',
     'correspondence',
@@ -34,43 +34,44 @@ function main() {
     'online learning',
     'e learning',
     'e-learning',
+    // Add more specific course/format keywords if needed, e.g.
+    // 'pg diploma', 'certificate course', 'diploma course', 'crash course', etc.
   ];
-  
+
   // Convert to lowercase for case-insensitive matching
-  var unwantedLower = unwantedPatterns.map(function(s) { return s.toLowerCase(); });
-  
-  // We'll collect what we actually negated this run
+  var wantedLower = wantedPatterns.map(function(s) { return s.toLowerCase(); });
+
   var negatedThisRun = [];
-  
-  // Get search query report for last 7 days (adjust if needed)
+
+  // Consider changing to LAST_1_DAY or LAST_3_DAYS for faster reaction
   var report = AdsApp.report(
     "SELECT Query, CampaignName, AdGroupName, Clicks, Conversions, Cost, Impressions " +
     "FROM SEARCH_QUERY_PERFORMANCE_REPORT " +
-    "DURING LAST_7_DAYS"
+    "DURING LAST_7_DAYS"   // ← change here if desired
   );
-  
+
   var rows = report.rows();
   var toNegate = {};
-  
+
   while (rows.hasNext()) {
     var row = rows.next();
     var query = row['Query'].toLowerCase().trim();
-    
-    // Skip very short or empty queries
+
     if (query.length < 4) continue;
-    
-    var shouldNegate = false;
-    
-    // Check if query contains any unwanted pattern
-    for (var i = 0; i < unwantedLower.length; i++) {
-      if (query.indexOf(unwantedLower[i]) !== -1) {
-        shouldNegate = true;
+
+    var containsWantedTerm = false;
+
+    for (var i = 0; i < wantedLower.length; i++) {
+      if (query.indexOf(wantedLower[i]) !== -1) {
+        containsWantedTerm = true;
         break;
       }
     }
-    
-    if (shouldNegate) {
-      var key = query; // we negate exact search terms that matched
+
+    // NEGATE if the query does NOT contain any wanted pattern
+    if (!containsWantedTerm) {
+      var key = query;
+
       if (!toNegate[key]) {
         toNegate[key] = {
           query: row['Query'],
@@ -82,34 +83,33 @@ function main() {
           adgroups: {}
         };
       }
-      
+
       var camp = row['CampaignName'];
-      var ag   = row['AdGroupName'];
-      
+      var ag = row['AdGroupName'];
+
       toNegate[key].campaigns[camp] = true;
       toNegate[key].adgroups[ag] = true;
     }
   }
-  
-  // Now apply negations - account level negative keywords (broad match)
+
   var alreadyNegated = {};
   var existingNegatives = AdsApp.negativeKeywords().get();
   while (existingNegatives.hasNext()) {
     var neg = existingNegatives.next();
     alreadyNegated[neg.getText().toLowerCase()] = true;
   }
-  
+
   var newlyAddedCount = 0;
-  
+
   for (var q in toNegate) {
     var item = toNegate[q];
     var cleanQuery = item.query.trim();
     var lowerQuery = cleanQuery.toLowerCase();
-    
-    if (alreadyNegated[lowerQuery]) continue; // already negated
-    
+
+    if (alreadyNegated[lowerQuery]) continue;
+
     try {
-      AdsApp.createNegativeKeyword(cleanQuery);
+      AdsApp.createNegativeKeyword(cleanQuery);  // broad match negative
       newlyAddedCount++;
       negatedThisRun.push({
         query: cleanQuery,
@@ -124,8 +124,7 @@ function main() {
       Logger.log('Could not negate: ' + cleanQuery + ' → ' + e);
     }
   }
-  
-  // Build nice HTML email
+
   var html = '<html><head><style>' +
     'body{font-family:Arial,sans-serif;line-height:1.5;color:#333;}' +
     'table{border-collapse:collapse;width:100%;margin:20px 0;}' +
@@ -134,25 +133,25 @@ function main() {
     '.highlight{color:#d32f2f;font-weight:bold;}' +
     'h2{color:#1565c0;margin-top:30px;}' +
     '</style></head><body>';
-  
-  html += '<h1>Auto Negative Keywords Report</h1>';
+
+  html += '<h1>Auto Negative Keywords Report (Non-Online Mode)</h1>';
   html += '<p><strong>Date:</strong> ' + new Date().toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'}) + '</p>';
   html += '<p><strong>Account:</strong> ' + AdsApp.currentAccount().getName() + '</p>';
-  html += '<p>Script automatically negated search terms containing online, distance, hybrid, course, part-time etc. patterns.</p>';
-  
+  html += '<p>Script automatically negated search terms that <strong>do NOT</strong> contain online, distance, hybrid, course, part-time, evening, weekend, etc. patterns.</p>';
+
   html += '<h2>Summary</h2>';
   html += '<ul>';
   html += '<li>New negative keywords added this run: <strong>' + newlyAddedCount + '</strong></li>';
   html += '<li>Keywords checked from last 7 days search queries</li>';
   html += '</ul>';
-  
+
   if (negatedThisRun.length > 0) {
-    html += '<h2>Keywords Negated This Run</h2>';
+    html += '<h2>Keywords Negated This Run (irrelevant offline/generic terms)</h2>';
     html += '<table>';
     html += '<tr><th>Search Term</th><th>Clicks</th><th>Cost (₹)</th><th>Impr.</th><th>Conv.</th><th>Appeared In Campaigns</th></tr>';
-    
+
     negatedThisRun.sort(function(a,b){ return b.clicks - a.clicks || b.cost - a.cost; });
-    
+
     negatedThisRun.forEach(function(item) {
       html += '<tr>' +
         '<td class="highlight">' + item.query + '</td>' +
@@ -163,28 +162,28 @@ function main() {
         '<td>' + item.campaigns + '</td>' +
         '</tr>';
     });
-    
+
     html += '</table>';
-    
-    html += '<p><strong>Total wasted spend blocked (approx):</strong> ₹' + 
-            negatedThisRun.reduce(function(sum, item){ return sum + parseFloat(item.cost); }, 0).toFixed(2) + 
+
+    html += '<p><strong>Total wasted spend blocked (approx):</strong> ₹' +
+            negatedThisRun.reduce(function(sum, item){ return sum + parseFloat(item.cost); }, 0).toFixed(2) +
             ' from these terms in the last 7 days.</p>';
   } else {
     html += '<h2>No new terms negated this run</h2>';
-    html += '<p>All detected irrelevant online/hybrid/course related queries were already negated or no matching traffic found in last 7 days.</p>';
+    html += '<p>All detected generic/offline queries were already negated or no matching traffic found.</p>';
   }
-  
+
   html += '<p style="margin-top:40px;font-size:13px;color:#555;">' +
-          'This script runs automatically and adds account-level broad negative keywords.<br>' +
-          'Review negated terms in Shared Library → Negative keyword lists if needed.</p>';
-  
+          'This script adds account-level broad negative keywords.<br>' +
+          'Review in Shared Library → Negative keyword lists.</p>';
+
   html += '</body></html>';
-  
+
   MailApp.sendEmail({
     to: EMAIL,
     subject: SUBJECT,
     htmlBody: html
   });
-  
-  Logger.log('Negated ' + newlyAddedCount + ' new terms this run.');
+
+  Logger.log('Negated ' + newlyAddedCount + ' new irrelevant terms this run.');
 }
