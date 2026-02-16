@@ -1,0 +1,255 @@
+```javascript
+function main() {
+  var EMAIL = 'nikhargeraj@gmail.com';
+  var SUBJECT = 'Auction Insights Report - Competitor Activity Analysis (Last 3 Months)';
+  var topLabelName = 'High Competition - Last 90 Days';
+  var increaseLabelName = 'Increasing Competition - Last 90 Days';
+  var topColor = '#FF9800';
+  var increaseColor = '#E91E63';
+  var topLabelIterator = AdsApp.labels().withCondition("Name = '" + topLabelName + "'").get();
+  var topLabel;
+  if (topLabelIterator.hasNext()) {
+    topLabel = topLabelIterator.next();
+  } else {
+    topLabel = AdsApp.createLabel(topLabelName, 'High competitor activity detected in last 90 days', topColor);
+  }
+  var increaseLabelIterator = AdsApp.labels().withCondition("Name = '" + increaseLabelName + "'").get();
+  var increaseLabel;
+  if (increaseLabelIterator.hasNext()) {
+    increaseLabel = increaseLabelIterator.next();
+  } else {
+    increaseLabel = AdsApp.createLabel(increaseLabelName, 'Competitor activity has increased significantly', increaseColor);
+  }
+  var labeledTop = AdsApp.campaigns().withCondition("LabelNames CONTAINS_ANY ['" + topLabelName + "']").get();
+  while (labeledTop.hasNext()) {
+    labeledTop.next().removeLabel(topLabelName);
+  }
+  var labeledIncrease = AdsApp.campaigns().withCondition("LabelNames CONTAINS_ANY ['" + increaseLabelName + "']").get();
+  while (labeledIncrease.hasNext()) {
+    labeledIncrease.next().removeLabel(increaseLabelName);
+  }
+  function formatDate(d) {
+    return Utilities.formatDate(d, AdsApp.currentAccount().getTimeZone(), 'yyyyMMdd');
+  }
+  var now = new Date();
+  var recentEnd = new Date(now.getTime());
+  var recentStart = new Date(now.getTime());
+  recentStart.setDate(recentStart.getDate() - 89);
+  var prevEnd = new Date(recentStart.getTime());
+  prevEnd.setDate(prevEnd.getDate() - 1);
+  var prevStart = new Date(prevEnd.getTime());
+  prevStart.setDate(prevStart.getDate() - 89);
+  var recentDuring = formatDate(recentStart) + ',' + formatDate(recentEnd);
+  var prevDuring = formatDate(prevStart) + ',' + formatDate(prevEnd);
+  function getAuctionData(during) {
+    var report = AdsApp.report(
+      "SELECT CampaignId, CampaignName, Competitor, ImpressionShare, OverlapRate, PositionAboveRate, TopOfPageRate, AbsoluteTopOfPageRate " +
+      "FROM AUCTION_INSIGHTS_REPORT " +
+      "DURING " + during
+    );
+    var rows = report.rows();
+    var data = {};
+    while (rows.hasNext()) {
+      var row = rows.next();
+      var campId = row['CampaignId'];
+      var comp = row['Competitor'];
+      if (comp === '--' || comp === 'Your account' || comp.indexOf('Your account') !== -1) continue;
+      if (!data[campId]) data[campId] = {};
+      if (!data[campId][comp]) {
+        data[campId][comp] = {count: 0, impShare: 0, overlap: 0, posAbove: 0, topPage: 0, absTop: 0};
+      }
+      data[campId][comp].count++;
+      data[campId][comp].impShare += parseFloat((row['ImpressionShare'] || '0').replace('%', ''));
+      data[campId][comp].overlap += parseFloat((row['OverlapRate'] || '0').replace('%', ''));
+      data[campId][comp].posAbove += parseFloat((row['PositionAboveRate'] || '0').replace('%', ''));
+      data[campId][comp].topPage += parseFloat((row['TopOfPageRate'] || '0').replace('%', ''));
+      data[campId][comp].absTop += parseFloat((row['AbsoluteTopOfPageRate'] || '0').replace('%', ''));
+    }
+    for (var cId in data) {
+      for (var co in data[cId]) {
+        var d = data[cId][co];
+        if (d.count > 0) {
+          d.impShare /= d.count;
+          d.overlap /= d.count;
+          d.posAbove /= d.count;
+          d.topPage /= d.count;
+          d.absTop /= d.count;
+        }
+      }
+    }
+    return data;
+  }
+  var recentData = getAuctionData(recentDuring);
+  var prevData = getAuctionData(prevDuring);
+  function getAggregated(data) {
+    var agg = {};
+    for (var camp in data) {
+      for (var comp in data[camp]) {
+        if (!agg[comp]) {
+          agg[comp] = {totalOverlap: 0, totalPosAbove: 0, totalTopPage: 0, totalAbsTop: 0, totalImpShare: 0, count: 0};
+        }
+        var d = data[camp][comp];
+        agg[comp].totalOverlap += d.overlap;
+        agg[comp].totalPosAbove += d.posAbove;
+        agg[comp].totalTopPage += d.topPage;
+        agg[comp].totalAbsTop += d.absTop;
+        agg[comp].totalImpShare += d.impShare;
+        agg[comp].count++;
+      }
+    }
+    for (var comp in agg) {
+      var a = agg[comp];
+      a.avgOverlap = a.totalOverlap / a.count;
+      a.avgPosAbove = a.totalPosAbove / a.count;
+      a.avgTopPage = a.totalTopPage / a.count;
+      a.avgAbsTop = a.totalAbsTop / a.count;
+      a.avgImpShare = a.totalImpShare / a.count;
+    }
+    return agg;
+  }
+  var recentAgg = getAggregated(recentData);
+  var prevAgg = getAggregated(prevData);
+  var recentCompetitorsList = Object.keys(recentAgg).map(function(comp) {
+    return {
+      name: comp,
+      overlap: recentAgg[comp].avgOverlap,
+      posAbove: recentAgg[comp].avgPosAbove,
+      topPage: recentAgg[comp].avgTopPage,
+      absTop: recentAgg[comp].avgAbsTop,
+      impShare: recentAgg[comp].avgImpShare
+    };
+  }).sort(function(a, b) {
+    return b.overlap - a.overlap;
+  });
+  var increasingCompetitors = [];
+  var newCompetitors = [];
+  Object.keys(recentAgg).forEach(function(comp) {
+    var rec = recentAgg[comp];
+    var pre = prevAgg[comp] || {avgOverlap: 0, avgPosAbove: 0};
+    var deltaOverlap = rec.avgOverlap - pre.avgOverlap;
+    if (deltaOverlap > 8 || (rec.avgOverlap > 25 && deltaOverlap > 4) || rec.avgPosAbove > pre.avgPosAbove * 1.25) {
+      increasingCompetitors.push({
+        name: comp,
+        recentOverlap: rec.avgOverlap.toFixed(1),
+        prevOverlap: pre.avgOverlap.toFixed(1),
+        delta: deltaOverlap.toFixed(1),
+        recentPosAbove: rec.avgPosAbove.toFixed(1),
+        prevPosAbove: pre.avgPosAbove.toFixed(1)
+      });
+    }
+    if (!prevAgg[comp]) {
+      newCompetitors.push(rec);
+    }
+  });
+  var campaignsWithHighCompetition = [];
+  var campaignsWithIncreasingCompetition = [];
+  for (var campId in recentData) {
+    var campRecent = recentData[campId];
+    var campPrev = prevData[campId] || {};
+    var totalOverlapRecent = 0;
+    var totalOverlapPrev = 0;
+    var compCountRecent = 0;
+    var compCountPrev = 0;
+    var newInThisCamp = 0;
+    var overlapDeltaSum = 0;
+    for (var comp in campRecent) {
+      compCountRecent++;
+      totalOverlapRecent += campRecent[comp].overlap;
+      if (!campPrev[comp]) newInThisCamp++;
+      else {
+        overlapDeltaSum += (campRecent[comp].overlap - campPrev[comp].overlap);
+      }
+    }
+    for (var comp in campPrev) {
+      compCountPrev++;
+      totalOverlapPrev += campPrev[comp].overlap;
+    }
+    var avgOverlapRecent = compCountRecent > 0 ? totalOverlapRecent / compCountRecent : 0;
+    var avgOverlapPrev = compCountPrev > 0 ? totalOverlapPrev / compCountPrev : 0;
+    var avgDelta = compCountRecent > 0 ? overlapDeltaSum / compCountRecent : 0;
+    if (avgOverlapRecent > 35) {
+      campaignsWithHighCompetition.push(campId);
+    }
+    if (avgOverlapRecent > avgOverlapPrev * 1.18 || newInThisCamp >= 2 || avgDelta > 7) {
+      campaignsWithIncreasingCompetition.push(campId);
+    }
+  }
+  campaignsWithHighCompetition.forEach(function(id) {
+    var campIt = AdsApp.campaigns().withCondition('CampaignId = ' + id).get();
+    if (campIt.hasNext()) campIt.next().applyLabel(topLabelName);
+  });
+  campaignsWithIncreasingCompetition.forEach(function(id) {
+    var campIt = AdsApp.campaigns().withCondition('CampaignId = ' + id).get();
+    if (campIt.hasNext()) campIt.next().applyLabel(increaseLabelName);
+  });
+  var html = '<html><head><style>body{font-family:Arial,sans-serif;line-height:1.6;color:#333;} table{border-collapse:collapse;width:100%;margin:20px 0;} th,td{border:1px solid #ddd;padding:12px;text-align:left;} th{background:#f1f3f4;font-weight:600;} .good{color:#00C853;} .warning{color:#FF9800;} .bad{color:#F44336;} h2{margin-top:30px;color:#1a73e8;} ul{line-height:1.8;}</style></head><body>';
+  html += '<h1 style="color:#1a73e8;">Auction Insights Report - Competitor Activity (Last 3 Months)</h1>';
+  html += '<p><strong>Account:</strong> ' + AdsApp.currentAccount().getName() + '</p>';
+  html += '<p><strong>Period Compared:</strong> Last 90 days vs Previous 90 days</p>';
+  html += '<p><strong>Generated:</strong> ' + new Date().toLocaleString('en-US', {timeZone: 'Asia/Kolkata'}) + '</p>';
+  html += '<h2>Key Insights</h2>';
+  html += '<ul>';
+  if (newCompetitors.length > 0) {
+    html += '<li><span class="warning">New competitors entered the auction (' + newCompetitors.length + ')</span> — market is becoming more competitive. Review ad copy and landing pages to maintain relevance.</li>';
+  }
+  if (increasingCompetitors.length > 0) {
+    html += '<li><span class="bad">Competitor activity increased for ' + increasingCompetitors.length + ' domains</span> — they are bidding more aggressively. Consider raising bids on high-value keywords or improving Quality Scores.</li>';
+  } else {
+    html += '<li>Competitor activity remained relatively stable — good time to focus on scaling volume.</li>';
+  }
+  var avgOverlapRecent = recentCompetitorsList.length > 0 ? recentCompetitorsList.reduce(function(sum, c) { return sum + c.overlap; }, 0) / recentCompetitorsList.length : 0;
+  html += '<li>Average overlap rate in recent 90 days: <strong>' + avgOverlapRecent.toFixed(1) + '%</strong></li>';
+  html += '</ul>';
+  html += '<h2>Top Competitors (by Overlap Rate - Recent 90 Days)</h2>';
+  html += '<table><tr><th>Competitor</th><th>Overlap Rate</th><th>Position Above Rate</th><th>Top of Page Rate</th><th>Imp. Share</th></tr>';
+  recentCompetitorsList.slice(0, 12).forEach(function(c) {
+    var cls = c.overlap > 40 ? 'bad' : (c.overlap > 25 ? 'warning' : 'good');
+    html += '<tr><td>' + c.name + '</td><td class="' + cls + '">' + c.overlap.toFixed(1) + '%</td><td>' + c.posAbove.toFixed(1) + '%</td><td>' + c.topPage.toFixed(1) + '%</td><td>' + c.impShare.toFixed(1) + '%</td></tr>';
+  });
+  html += '</table>';
+  if (increasingCompetitors.length > 0) {
+    html += '<h2>Competitors with Rising Activity</h2>';
+    html += '<p>These domains showed noticeable increases in overlap or position dominance.</p>';
+    html += '<table><tr><th>Competitor</th><th>Recent Overlap</th><th>Previous Overlap</th><th>Change</th><th>Recent Pos. Above</th></tr>';
+    increasingCompetitors.forEach(function(c) {
+      html += '<tr><td>' + c.name + '</td><td>' + c.recentOverlap + '%</td><td>' + c.prevOverlap + '%</td><td class="bad">+' + c.delta + '%</td><td>' + c.recentPosAbove + '%</td></tr>';
+    });
+    html += '</table>';
+  }
+  if (newCompetitors.length > 0) {
+    html += '<h2>New Competitors in Last 90 Days</h2>';
+    html += '<table><tr><th>Competitor</th><th>Overlap Rate</th><th>Position Above Rate</th></tr>';
+    newCompetitors.forEach(function(c) {
+      html += '<tr><td>' + c.name + '</td><td>' + c.avgOverlap.toFixed(1) + '%</td><td>' + c.avgPosAbove.toFixed(1) + '%</td></tr>';
+    });
+    html += '</table>';
+  }
+  html += '<h2>Campaigns to Monitor</h2>';
+  html += '<p>These campaigns have been labeled in your account:</p>';
+  html += '<ul>';
+  if (campaignsWithHighCompetition.length > 0) {
+    html += '<li><strong>High Competition</strong> (' + campaignsWithHighCompetition.length + ' campaigns) — labeled <span style="background:#FF9800;color:white;padding:2px 6px;border-radius:3px;">High Competition - Last 90 Days</span></li>';
+  }
+  if (campaignsWithIncreasingCompetition.length > 0) {
+    html += '<li><strong>Increasing Competition</strong> (' + campaignsWithIncreasingCompetition.length + ' campaigns) — labeled <span style="background:#E91E63;color:white;padding:2px 6px;border-radius:3px;">Increasing Competition - Last 90 Days</span></li>';
+  }
+  if (campaignsWithHighCompetition.length === 0 && campaignsWithIncreasingCompetition.length === 0) {
+    html += '<li>No major competition flags — all campaigns are performing in a relatively stable auction environment.</li>';
+  }
+  html += '</ul>';
+  html += '<h2>Recommended Actions</h2>';
+  html += '<ul>';
+  html += '<li><strong>For high-overlap competitors:</strong> Improve ad relevance and landing page experience to boost Quality Score and lower CPCs.</li>';
+  html += '<li><strong>For rising competitors:</strong> Increase bids by 15-25% on top keywords or expand negative keyword lists to protect share.</li>';
+  html += '<li><strong>Overall:</strong> Use this data to prioritize budget allocation — shift spend to campaigns with lower competition and higher conversion potential.</li>';
+  html += '<li>Run this script weekly for ongoing monitoring.</li>';
+  html += '</ul>';
+  html += '<p style="margin-top:40px;font-size:12px;color:#666;">Report generated automatically. Labels are updated in your Google Ads account for instant filtering and sorting.</p>';
+  html += '</body></html>';
+  MailApp.sendEmail({
+    to: EMAIL,
+    subject: SUBJECT,
+    htmlBody: html
+  });
+}
+```
