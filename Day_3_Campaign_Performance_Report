@@ -1,0 +1,259 @@
+function main() {
+  var EMAIL = 'nikhargeraj@gmail.com';
+  var SUBJECT = 'Google Ads Performance Report - Last 7 Days';
+  var dateRange = 'LAST_7_DAYS';
+  var topLabelName = 'Top Performer - Last 7 Days';
+  var bottomLabelName = 'Underperformer - Last 7 Days';
+  var topColor = '#00C853';
+  var bottomColor = '#F44336';
+  var topLabelIterator = AdsApp.labels().withCondition("Name = '" + topLabelName + "'").get();
+  var topLabel;
+  if (topLabelIterator.hasNext()) {
+    topLabel = topLabelIterator.next();
+  } else {
+    topLabel = AdsApp.createLabel(topLabelName, 'Highlighted as top performer in last 7 days', topColor);
+  }
+  var bottomLabelIterator = AdsApp.labels().withCondition("Name = '" + bottomLabelName + "'").get();
+  var bottomLabel;
+  if (bottomLabelIterator.hasNext()) {
+    bottomLabel = bottomLabelIterator.next();
+  } else {
+    bottomLabel = AdsApp.createLabel(bottomLabelName, 'Highlighted as underperformer in last 7 days', bottomColor);
+  }
+  var labeledTop = AdsApp.campaigns().withCondition("LabelNames CONTAINS_ANY ['" + topLabelName + "']").get();
+  while (labeledTop.hasNext()) {
+    labeledTop.next().removeLabel(topLabelName);
+  }
+  var labeledBottom = AdsApp.campaigns().withCondition("LabelNames CONTAINS_ANY ['" + bottomLabelName + "']").get();
+  while (labeledBottom.hasNext()) {
+    labeledBottom.next().removeLabel(bottomLabelName);
+  }
+  var report = AdsApp.report(
+    "SELECT CampaignId, CampaignName, Impressions, Clicks, Cost, Conversions, Ctr, ConversionRate, CostPerConversion, ImpressionShare, LostImpressionShareBudgetPercent, LostImpressionShareRankPercent " +
+    "FROM CAMPAIGN_PERFORMANCE_REPORT " +
+    "WHERE Impressions > 100 " +
+    "DURING " + dateRange
+  );
+  var rows = report.rows();
+  var campaigns = [];
+  var totalImps = 0;
+  var totalClks = 0;
+  var totalCst = 0;
+  var totalConv = 0;
+  while (rows.hasNext()) {
+    var row = rows.next();
+    var impressions = parseFloat(row['Impressions']);
+    var clicks = parseFloat(row['Clicks']);
+    var cost = parseFloat(row['Cost']);
+    var conversions = parseFloat(row['Conversions']);
+    var ctr = parseFloat((row['Ctr'] || '0').replace('%', ''));
+    var convRate = parseFloat((row['ConversionRate'] || '0').replace('%', ''));
+    var cplStr = row['CostPerConversion'] || '0';
+    var cpl = (cplStr === '--' || cplStr === '') ? Infinity : parseFloat(cplStr);
+    var impShare = parseFloat((row['ImpressionShare'] || '0').replace('%', ''));
+    var lostBudget = parseFloat((row['LostImpressionShareBudgetPercent'] || '0').replace('%', ''));
+    var lostRank = parseFloat((row['LostImpressionShareRankPercent'] || '0').replace('%', ''));
+    var camp = {
+      id: row['CampaignId'],
+      name: row['CampaignName'],
+      impressions: impressions,
+      clicks: clicks,
+      cost: cost,
+      conversions: conversions,
+      ctr: ctr,
+      convRate: convRate,
+      cpl: cpl,
+      impShare: impShare,
+      lostBudget: lostBudget,
+      lostRank: lostRank
+    };
+    campaigns.push(camp);
+    totalImps += impressions;
+    totalClks += clicks;
+    totalCst += cost;
+    totalConv += conversions;
+  }
+  if (campaigns.length === 0) {
+    MailApp.sendEmail(EMAIL, 'No data for report', 'No campaign data found for last 7 days.');
+    return;
+  }
+  var avgCtr = totalImps > 0 ? totalClks / totalImps * 100 : 0;
+  var avgConvRate = totalClks > 0 ? totalConv / totalClks * 100 : 0;
+  var avgCpl = totalConv > 0 ? totalCst / totalConv : 0;
+  var avgConversions = campaigns.length > 0 ? totalConv / campaigns.length : 0;
+  campaigns.forEach(function(c) {
+    var ctrScore = avgCtr > 0 ? c.ctr / avgCtr : 1;
+    var convRateScore = avgConvRate > 0 ? c.convRate / avgConvRate : 1;
+    var convScore = avgConversions > 0 ? c.conversions / avgConversions : 1;
+    c.score = (ctrScore * 0.4) + (convRateScore * 0.4) + (convScore * 0.2);
+  });
+  var bestCampaigns = campaigns.slice().sort(function(a, b) { return b.score - a.score; }).slice(0, 8);
+  var worstCampaigns = campaigns.filter(function(c) {
+    return c.cpl > avgCpl * 1.5 || c.convRate < avgConvRate * 0.6 || c.score < 0.8 || (c.conversions === 0 && c.cost > 100);
+  }).sort(function(a, b) { return a.score - b.score; }).slice(0, 8);
+  bestCampaigns.forEach(function(c) {
+    var campIt = AdsApp.campaigns().withCondition('CampaignId = ' + c.id).get();
+    if (campIt.hasNext()) {
+      campIt.next().applyLabel(topLabelName);
+    }
+  });
+  worstCampaigns.forEach(function(c) {
+    var campIt = AdsApp.campaigns().withCondition('CampaignId = ' + c.id).get();
+    if (campIt.hasNext()) {
+      campIt.next().applyLabel(bottomLabelName);
+    }
+  });
+  var html = '<html><head><style>body{font-family:Arial,sans-serif;line-height:1.6;} table{border-collapse:collapse;width:100%;margin-bottom:20px;} th,td{border:1px solid #ddd;padding:10px;text-align:left;} th{background-color:#f8f9fa;font-weight:bold;} .good{color:#00C853;font-weight:bold;} .bad{color:#F44336;font-weight:bold;} h2{color:#333;margin-top:30px;} ul{padding-left:20px;} li{margin-bottom:8px;}</style></head><body>';
+  html += '<h1 style="color:#4285f4;">Google Ads Performance Report - Last 7 Days</h1>';
+  html += '<p><strong>Account:</strong> ' + AdsApp.currentAccount().getName() + '</p>';
+  html += '<p><strong>Generated:</strong> ' + new Date().toLocaleString('en-US', {timeZone: 'Asia/Kolkata'}) + '</p>';
+  html += '<h2>Account Summary (Last 7 Days)</h2>';
+  html += '<table><tr><th>Metric</th><th>Value</th></tr>';
+  html += '<tr><td>Total Impressions</td><td>' + totalImps.toLocaleString() + '</td></tr>';
+  html += '<tr><td>Total Clicks</td><td>' + totalClks.toLocaleString() + '</td></tr>';
+  html += '<tr><td>Total Spend</td><td>$' + totalCst.toFixed(2) + '</td></tr>';
+  html += '<tr><td>Total Conversions</td><td>' + totalConv.toFixed(2) + '</td></tr>';
+  html += '<tr><td>Average CTR</td><td>' + avgCtr.toFixed(2) + '%</td></tr>';
+  html += '<tr><td>Average Conversion Rate</td><td>' + avgConvRate.toFixed(2) + '%</td></tr>';
+  html += '<tr><td>Average CPL</td><td>$' + avgCpl.toFixed(2) + '</td></tr>';
+  html += '</table>';
+  html += '<h2>Best Performing Campaigns</h2>';
+  html += '<p>These campaigns stand out on CTR, conversion rate, and overall results. They have been labeled <strong>Top Performer - Last 7 Days</strong> in your account.</p>';
+  html += '<table><tr><th>Campaign</th><th>Impressions</th><th>Clicks</th><th>CTR</th><th>Conv. Rate</th><th>CPL</th><th>Conversions</th><th>Imp. Share</th><th>Lost to Budget</th></tr>';
+  bestCampaigns.forEach(function(c) {
+    html += '<tr><td>' + c.name + '</td><td>' + c.impressions.toLocaleString() + '</td><td>' + c.clicks.toLocaleString() + '</td><td class="good">' + c.ctr.toFixed(2) + '%</td><td class="good">' + c.convRate.toFixed(2) + '%</td><td>' + (c.cpl === Infinity ? 'N/A' : '$' + c.cpl.toFixed(2)) + '</td><td>' + c.conversions.toFixed(2) + '</td><td>' + c.impShare.toFixed(1) + '%</td><td>' + c.lostBudget.toFixed(1) + '%</td></tr>';
+  });
+  html += '</table>';
+  html += '<h2>Scaling Opportunities from Top Campaigns</h2>';
+  html += '<p>These high-performing campaigns still have headroom to grow. Increase budgets to capture more traffic.</p>';
+  html += '<ul>';
+  var hasScaling = false;
+  bestCampaigns.forEach(function(c) {
+    if (c.lostBudget > 10) {
+      hasScaling = true;
+      var suggestIncrease = Math.round(c.lostBudget * 1.3);
+      html += '<li><strong>' + c.name + '</strong>: Lost <strong>' + c.lostBudget.toFixed(0) + '%</strong> impression share to budget. <strong>Recommended action:</strong> Increase daily budget by ' + suggestIncrease + '% to maintain strong CTR & conversion rate while scaling volume.</li>';
+    }
+  });
+  if (!hasScaling) {
+    html += '<li>No major lost budget share in top campaigns — they are already capturing most available traffic.</li>';
+  }
+  html += '</ul>';
+  html += '<h2>Underperforming Campaigns</h2>';
+  html += '<p>These campaigns show weaker metrics (high CPL, low conversion rate). They have been labeled <strong>Underperformer - Last 7 Days</strong>. Review and optimize or pause.</p>';
+  html += '<table><tr><th>Campaign</th><th>Impressions</th><th>Clicks</th><th>CTR</th><th>Conv. Rate</th><th>CPL</th><th>Conversions</th></tr>';
+  worstCampaigns.forEach(function(c) {
+    html += '<tr><td>' + c.name + '</td><td>' + c.impressions.toLocaleString() + '</td><td>' + c.clicks.toLocaleString() + '</td><td>' + c.ctr.toFixed(2) + '%</td><td class="bad">' + c.convRate.toFixed(2) + '%</td><td class="bad">$' + (c.cpl === Infinity ? 'N/A' : c.cpl.toFixed(2)) + '</td><td>' + c.conversions.toFixed(2) + '</td></tr>';
+  });
+  html += '</table>';
+  html += '<h2>Detailed Breakdown: Underperforming Campaigns</h2>';
+  worstCampaigns.forEach(function(worst) {
+    html += '<h3 style="color:#F44336;">Campaign: ' + worst.name + '</h3>';
+    var agReport = AdsApp.report(
+      "SELECT AdGroupId, AdGroupName, Impressions, Clicks, Cost, Conversions, Ctr, ConversionRate, CostPerConversion " +
+      "FROM AD_GROUP_PERFORMANCE_REPORT " +
+      "WHERE CampaignId = " + worst.id + " " +
+      "DURING " + dateRange
+    );
+    var agRows = agReport.rows();
+    var adGroups = [];
+    while (agRows.hasNext()) {
+      var agRow = agRows.next();
+      var agImps = parseFloat(agRow['Impressions']);
+      var agClks = parseFloat(agRow['Clicks']);
+      var agCost = parseFloat(agRow['Cost']);
+      var agConv = parseFloat(agRow['Conversions']);
+      var agCtr = parseFloat((agRow['Ctr'] || '0').replace('%', ''));
+      var agConvRate = parseFloat((agRow['ConversionRate'] || '0').replace('%', ''));
+      var agCplStr = agRow['CostPerConversion'] || '0';
+      var agCpl = (agCplStr === '--' || agCplStr === '') ? Infinity : parseFloat(agCplStr);
+      adGroups.push({
+        name: agRow['AdGroupName'],
+        impressions: agImps,
+        clicks: agClks,
+        cost: agCost,
+        conversions: agConv,
+        ctr: agCtr,
+        convRate: agConvRate,
+        cpl: agCpl
+      });
+    }
+    if (adGroups.length > 0) {
+      html += '<p><strong>Ad Group Performance</strong> (sorted by conversion rate)</p>';
+      html += '<table><tr><th>Ad Group</th><th>Impressions</th><th>Clicks</th><th>CTR</th><th>Conv. Rate</th><th>CPL</th><th>Conversions</th></tr>';
+      adGroups.sort(function(a, b) { return a.convRate - b.convRate; });
+      adGroups.forEach(function(ag) {
+        html += '<tr><td>' + ag.name + '</td><td>' + ag.impressions.toLocaleString() + '</td><td>' + ag.clicks.toLocaleString() + '</td><td>' + ag.ctr.toFixed(2) + '%</td><td>' + ag.convRate.toFixed(2) + '%</td><td>' + (ag.cpl === Infinity ? 'N/A' : '$' + ag.cpl.toFixed(2)) + '</td><td>' + ag.conversions.toFixed(2) + '</td></tr>';
+      });
+      html += '</table>';
+      html += '<p><em>Action:</em> Shift budget and bids to the top-performing ad groups. Reduce or pause the weakest ones.</p>';
+    }
+    var kwReport = AdsApp.report(
+      "SELECT KeywordText, AdGroupName, Impressions, Clicks, Cost, Conversions, Ctr, ConversionRate, CostPerConversion, QualityScore " +
+      "FROM KEYWORD_PERFORMANCE_REPORT " +
+      "WHERE CampaignId = " + worst.id + " " +
+      "DURING " + dateRange
+    );
+    var kwRows = kwReport.rows();
+    var workingKws = [];
+    var badKws = [];
+    while (kwRows.hasNext()) {
+      var kwRow = kwRows.next();
+      var kwText = kwRow['KeywordText'];
+      var agName = kwRow['AdGroupName'];
+      var kwImps = parseFloat(kwRow['Impressions']);
+      var kwClks = parseFloat(kwRow['Clicks']);
+      var kwCost = parseFloat(kwRow['Cost']);
+      var kwConv = parseFloat(kwRow['Conversions']);
+      var kwCtr = parseFloat((kwRow['Ctr'] || '0').replace('%', ''));
+      var kwConvRate = parseFloat((kwRow['ConversionRate'] || '0').replace('%', ''));
+      var kwCplStr = kwRow['CostPerConversion'] || '0';
+      var kwCpl = (kwCplStr === '--' || kwCplStr === '') ? Infinity : parseFloat(kwCplStr);
+      var qs = parseFloat(kwRow['QualityScore'] || 0);
+      var kwObj = {
+        text: kwText,
+        adGroup: agName,
+        impressions: kwImps,
+        clicks: kwClks,
+        cost: kwCost,
+        conversions: kwConv,
+        ctr: kwCtr,
+        convRate: kwConvRate,
+        cpl: kwCpl,
+        qualityScore: qs
+      };
+      if (kwConv > 0) {
+        workingKws.push(kwObj);
+      } else if (kwClks > 15 || kwCost > 30) {
+        badKws.push(kwObj);
+      }
+    }
+    if (workingKws.length > 0) {
+      html += '<p><strong>Working Keywords (driving conversions)</strong></p>';
+      html += '<table><tr><th>Keyword</th><th>Ad Group</th><th>Conversions</th><th>CTR</th><th>CPL</th></tr>';
+      workingKws.sort(function(a, b) { return b.conversions - a.conversions; }).slice(0, 12);
+      workingKws.forEach(function(k) {
+        html += '<tr><td>' + k.text + '</td><td>' + k.adGroup + '</td><td>' + k.conversions.toFixed(1) + '</td><td>' + k.ctr.toFixed(2) + '%</td><td>' + (k.cpl === Infinity ? 'N/A' : '$' + k.cpl.toFixed(2)) + '</td></tr>';
+      });
+      html += '</table>';
+    }
+    if (badKws.length > 0) {
+      html += '<p><strong>Problematic Keywords (spending without conversions)</strong></p>';
+      html += '<table><tr><th>Keyword</th><th>Ad Group</th><th>Clicks</th><th>Cost</th><th>CTR</th><th>Quality Score</th></tr>';
+      badKws.sort(function(a, b) { return b.cost - a.cost; }).slice(0, 15);
+      badKws.forEach(function(k) {
+        html += '<tr><td>' + k.text + '</td><td>' + k.adGroup + '</td><td>' + k.clicks.toLocaleString() + '</td><td>$' + k.cost.toFixed(2) + '</td><td>' + k.ctr.toFixed(2) + '%</td><td>' + k.qualityScore + '</td></tr>';
+      });
+      html += '</table>';
+      html += '<p><em>Recommended action:</em> Add these as negative keywords or pause them to stop wasting budget. Improve ad copy/landing pages for better relevance on borderline ones.</p>';
+    }
+  });
+  html += '<p style="margin-top:40px;font-size:12px;color:#666;">This report is generated automatically every time the script runs. Labels are updated live in your Google Ads account for quick filtering.</p>';
+  html += '</body></html>';
+  MailApp.sendEmail({
+    to: EMAIL,
+    subject: SUBJECT,
+    htmlBody: html
+  });
+}
+```
