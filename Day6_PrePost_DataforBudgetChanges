@@ -1,0 +1,273 @@
+function main() {
+  var EMAIL = 'nikhargeraj@gmail.com';
+  var SUBJECT = 'Budget Change Impact Report - Last 30 Days (Pre vs Post Analysis)';
+  
+  // ====================== 1. GET ALL BUDGET CHANGES IN LAST 30 DAYS ======================
+  var changeReport = AdsApp.report(
+    "SELECT ChangeDate, ChangedEntityId, ChangedEntityName, OldValue, NewValue, User " +
+    "FROM CHANGE_HISTORY_REPORT " +
+    "WHERE ChangedEntityType = 'BUDGET' " +
+    "DURING LAST_30_DAYS"
+  );
+  
+  var changes = [];
+  var rows = changeReport.rows();
+  while (rows.hasNext()) {
+    var row = rows.next();
+    if (row['OldValue'] === row['NewValue']) continue;
+    
+    var oldBudget = parseFloat(row['OldValue'] || 0);
+    var newBudget = parseFloat(row['NewValue'] || 0);
+    
+    changes.push({
+      date: row['ChangeDate'],                    // YYYY-MM-DD
+      budgetId: row['ChangedEntityId'],
+      budgetName: row['ChangedEntityName'],
+      oldBudget: oldBudget,
+      newBudget: newBudget,
+      changedBy: row['User'] || 'System/Auto'
+    });
+  }
+  
+  if (changes.length === 0) {
+    MailApp.sendEmail(EMAIL, 'No Budget Changes Detected', 'No budget changes found in the last 30 days.');
+    return;
+  }
+  
+  // ====================== 2. MAP BUDGETS → CAMPAIGNS ======================
+  var budgetToCampaigns = {};
+  var campIterator = AdsApp.campaigns().get();
+  while (campIterator.hasNext()) {
+    var campaign = campIterator.next();
+    var budget = campaign.getBudget();
+    if (budget) {
+      var bId = budget.getId().toString();
+      if (!budgetToCampaigns[bId]) budgetToCampaigns[bId] = [];
+      budgetToCampaigns[bId].push({
+        id: campaign.getId(),
+        name: campaign.getName()
+      });
+    }
+  }
+  
+  // ====================== 3. GET PERFORMANCE DATA FOR LAST 60 DAYS (FOR PRE/POST) ======================
+  var tz = AdsApp.currentAccount().getTimeZone();
+  var today = new Date();
+  var sixtyDaysAgo = new Date();
+  sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+  
+  var duringStr = Utilities.formatDate(sixtyDaysAgo, tz, 'yyyyMMdd') + ',' + Utilities.formatDate(today, tz, 'yyyyMMdd');
+  
+  var perfReport = AdsApp.report(
+    "SELECT CampaignId, Date, Impressions, Clicks, Cost, Conversions, Ctr, AverageCpc, CostPerConversion " +
+    "FROM CAMPAIGN_PERFORMANCE_REPORT " +
+    "DURING " + duringStr
+  );
+  
+  var campaignDailyData = {};
+  var perfRows = perfReport.rows();
+  while (perfRows.hasNext()) {
+    var r = perfRows.next();
+    var cId = r['CampaignId'];
+    var dateKey = r['Date']; // YYYY-MM-DD
+    
+    if (!campaignDailyData[cId]) campaignDailyData[cId] = {};
+    
+    campaignDailyData[cId][dateKey] = {
+      impr: parseFloat(r['Impressions']),
+      clicks: parseFloat(r['Clicks']),
+      cost: parseFloat(r['Cost']),
+      conv: parseFloat(r['Conversions'] || 0),
+      ctr: parseFloat((r['Ctr'] || '0').replace('%', '')),
+      cpc: parseFloat(r['AverageCpc'] || 0),
+      cpl: r['CostPerConversion'] === '--' ? Infinity : parseFloat(r['CostPerConversion'] || 0)
+    };
+  }
+  
+  // ====================== 4. ANALYZE PRE vs POST FOR EACH CHANGE ======================
+  var analysis = [];
+  
+  changes.forEach(function(change) {
+    var changeDateStr = change.date; // YYYY-MM-DD
+    var campaigns = budgetToCampaigns[change.budgetId] || [];
+    if (campaigns.length === 0) return;
+    
+    // Pre: 14 days before change (excluding change day)
+    var preStart = new Date(changeDateStr);
+    preStart.setDate(preStart.getDate() - 14);
+    var preEnd = new Date(changeDateStr);
+    preEnd.setDate(preEnd.getDate() - 1);
+    
+    // Post: up to 14 days after (or until today)
+    var postStart = new Date(changeDateStr);
+    postStart.setDate(postStart.getDate() + 1);
+    var postEnd = new Date();
+    var maxPostDays = 14;
+    var actualPostDays = Math.min(maxPostDays, Math.ceil((postEnd.getTime() - postStart.getTime()) / (1000 * 3600 * 24)));
+    postEnd.setDate(postStart.getDate() + actualPostDays - 1);
+    
+    var pre = {impr:0, clicks:0, cost:0, conv:0, days:0};
+    var post = {impr:0, clicks:0, cost:0, conv:0, days:0};
+    
+    campaigns.forEach(function(camp) {
+      var daily = campaignDailyData[camp.id] || {};
+      
+      // Pre period
+      var preStartKey = Utilities.formatDate(preStart, tz, 'yyyy-MM-dd');
+      var preEndKey   = Utilities.formatDate(preEnd, tz, 'yyyy-MM-dd');
+      for (var d in daily) {
+        if (d >= preStartKey && d <= preEndKey) {
+          var m = daily[d];
+          pre.impr += m.impr;
+          pre.clicks += m.clicks;
+          pre.cost += m.cost;
+          pre.conv += m.conv;
+          pre.days++;
+        }
+      }
+      
+      // Post period
+      var postStartKey = Utilities.formatDate(postStart, tz, 'yyyy-MM-dd');
+      var postEndKey   = Utilities.formatDate(postEnd, tz, 'yyyy-MM-dd');
+      for (var d in daily) {
+        if (d >= postStartKey && d <= postEndKey) {
+          var m = daily[d];
+          post.impr += m.impr;
+          post.clicks += m.clicks;
+          post.cost += m.cost;
+          post.conv += m.conv;
+          post.days++;
+        }
+      }
+    });
+    
+    if (pre.days < 7 || post.days < 5) return; // too little data
+    
+    // Daily averages
+    var preAvg = {
+      impr: pre.impr / pre.days,
+      clicks: pre.clicks / pre.days,
+      cost: pre.cost / pre.days,
+      conv: pre.conv / pre.days,
+      ctr: pre.clicks > 0 ? (pre.clicks / pre.impr * 100) : 0,
+      cpc: pre.clicks > 0 ? (pre.cost / pre.clicks) : 0,
+      cpl: pre.conv > 0 ? (pre.cost / pre.conv) : Infinity
+    };
+    
+    var postAvg = {
+      impr: post.impr / post.days,
+      clicks: post.clicks / post.days,
+      cost: post.cost / post.days,
+      conv: post.conv / post.days,
+      ctr: post.clicks > 0 ? (post.clicks / post.impr * 100) : 0,
+      cpc: post.clicks > 0 ? (post.cost / post.clicks) : 0,
+      cpl: post.conv > 0 ? (post.cost / post.conv) : Infinity
+    };
+    
+    // % changes
+    var impact = {
+      clicks: preAvg.clicks > 0 ? ((postAvg.clicks / preAvg.clicks) - 1) * 100 : 0,
+      cost: preAvg.cost > 0 ? ((postAvg.cost / preAvg.cost) - 1) * 100 : 0,
+      ctr: postAvg.ctr - preAvg.ctr,
+      cpc: preAvg.cpc > 0 ? ((postAvg.cpc / preAvg.cpc) - 1) * 100 : 0,
+      cpl: (preAvg.cpl === Infinity || postAvg.cpl === Infinity) ? 0 : ((postAvg.cpl / preAvg.cpl) - 1) * 100,
+      conv: preAvg.conv > 0 ? ((postAvg.conv / preAvg.conv) - 1) * 100 : 0
+    };
+    
+    analysis.push({
+      budgetName: change.budgetName,
+      changeDate: change.date,
+      oldBudget: change.oldBudget,
+      newBudget: change.newBudget,
+      changedBy: change.changedBy,
+      preDays: pre.days,
+      postDays: post.days,
+      pre: preAvg,
+      post: postAvg,
+      impact: impact
+    });
+  });
+  
+  // ====================== 5. BUILD BEAUTIFUL HTML REPORT ======================
+  var html = '<html><head><style>' +
+    'body{font-family:Arial,sans-serif;line-height:1.6;color:#333;background:#f8f9fa;padding:20px;}' +
+    'h1{color:#1a73e8;margin-bottom:10px;}' +
+    'table{border-collapse:collapse;width:100%;margin:20px 0;background:white;box-shadow:0 2px 8px rgba(0,0,0,0.1);}' +
+    'th,td{border:1px solid #e0e0e0;padding:12px;text-align:left;}' +
+    'th{background:#f1f3f4;font-weight:600;}' +
+    '.good{color:#00c853;font-weight:bold;}' +
+    '.bad{color:#f44336;font-weight:bold;}' +
+    '.neutral{color:#fbbc05;font-weight:bold;}' +
+    'tr:hover{background:#f8f9fa;}' +
+    '</style></head><body>';
+  
+  html += '<h1>Budget Change Impact Report</h1>';
+  html += '<p><strong>Account:</strong> ' + AdsApp.currentAccount().getName() + '</p>';
+  html += '<p><strong>Period:</strong> Last 30 days • Generated: ' + new Date().toLocaleString('en-IN', {timeZone: tz}) + '</p>';
+  html += '<p><strong>Total budget changes detected:</strong> ' + analysis.length + '</p>';
+  
+  html += '<h2 style="margin-top:30px;">Detailed Pre vs Post Analysis</h2>';
+  html += '<table>';
+  html += '<tr>' +
+    '<th>Budget Name</th>' +
+    '<th>Change Date</th>' +
+    '<th>Budget Change</th>' +
+    '<th>Pre (Daily Avg)</th>' +
+    '<th>Post (Daily Avg)</th>' +
+    '<th>Impact</th>' +
+    '</tr>';
+  
+  analysis.sort(function(a, b) { return new Date(b.changeDate) - new Date(a.changeDate); });
+  
+  analysis.forEach(function(item) {
+    var budgetChange = item.oldBudget.toLocaleString('en-IN') + ' → <strong>' + item.newBudget.toLocaleString('en-IN') + '</strong>';
+    var budgetDir = item.newBudget > item.oldBudget ? '↑' : '↓';
+    
+    var preHtml = 'Impr: ' + Math.round(item.pre.impr) + '<br>' +
+                  'Clicks: ' + Math.round(item.pre.clicks) + '<br>' +
+                  'CTR: ' + item.pre.ctr.toFixed(2) + '%<br>' +
+                  'CPL: ' + (item.pre.cpl === Infinity ? '—' : '₹' + item.pre.cpl.toFixed(1));
+    
+    var postHtml = 'Impr: ' + Math.round(item.post.impr) + '<br>' +
+                   'Clicks: ' + Math.round(item.post.clicks) + '<br>' +
+                   'CTR: ' + item.post.ctr.toFixed(2) + '%<br>' +
+                   'CPL: ' + (item.post.cpl === Infinity ? '—' : '₹' + item.post.cpl.toFixed(1));
+    
+    var impactHtml = '';
+    impactHtml += (item.impact.clicks >= 0 ? '<span class="good">+' : '<span class="bad">') + item.impact.clicks.toFixed(0) + '% Clicks</span><br>';
+    impactHtml += (item.impact.ctr >= 0 ? '<span class="good">+' : '<span class="bad">') + item.impact.ctr.toFixed(2) + '% CTR</span><br>';
+    impactHtml += (item.impact.cpl <= 0 ? '<span class="good">-' : '<span class="bad">+') + Math.abs(item.impact.cpl).toFixed(0) + '% CPL</span>';
+    
+    html += '<tr>' +
+      '<td><strong>' + item.budgetName + '</strong></td>' +
+      '<td>' + item.changeDate + '</td>' +
+      '<td>' + budgetDir + ' ' + budgetChange + '</td>' +
+      '<td>' + preHtml + '</td>' +
+      '<td>' + postHtml + '</td>' +
+      '<td>' + impactHtml + '</td>' +
+      '</tr>';
+  });
+  
+  html += '</table>';
+  
+  html += '<h2>Key Takeaways & Recommendations</h2>';
+  html += '<ul>';
+  html += '<li><strong>Budget increases that improved results:</strong> Look for green arrows in Clicks/CTR/CPL columns — scale more aggressively.</li>';
+  html += '<li><strong>Budget increases that hurt performance:</strong> Check if ad relevance or landing pages need work.</li>';
+  html += '<li><strong>Budget cuts that still performed well:</strong> Great efficiency — consider further optimization instead of increasing.</li>';
+  html += '</ul>';
+  
+  html += '<p style="margin-top:40px;font-size:12px;color:#666;">' +
+    'This report automatically tracks every manual or automated budget change and shows clear pre/post impact on your key metrics.<br>' +
+    'Run this script weekly or monthly for continuous budget intelligence.</p>';
+  
+  html += '</body></html>';
+  
+  MailApp.sendEmail({
+    to: EMAIL,
+    subject: SUBJECT,
+    htmlBody: html
+  });
+  
+  Logger.log('Budget Change Report sent. ' + analysis.length + ' changes analyzed.');
+}
