@@ -1,0 +1,110 @@
+/********************************************************
+ LAST 12 MONTH ELIGIBLE IMPRESSION TREND REPORT
+ Level: Campaign → AdGroup → Keyword
+ Export: Google Sheet (Excel Ready)
+********************************************************/
+
+function main() {
+
+  var SPREADSHEET_NAME = "12M Keyword Eligible Impression Trend Report";
+
+  var dateRange = getLast12Months();
+
+  var query = `
+    SELECT
+      segments.month,
+      campaign.name,
+      ad_group.name,
+      ad_group_criterion.keyword.text,
+      metrics.impressions,
+      metrics.search_impression_share,
+      metrics.search_budget_lost_impression_share,
+      metrics.search_rank_lost_impression_share
+    FROM keyword_view
+    WHERE segments.date BETWEEN '${dateRange.start}' AND '${dateRange.end}'
+    AND ad_group_criterion.status != 'REMOVED'
+  `;
+
+  var report = AdsApp.search(query);
+
+  // Create Spreadsheet
+  var spreadsheet = SpreadsheetApp.create(SPREADSHEET_NAME);
+  var sheet = spreadsheet.getActiveSheet();
+
+  // Header Row
+  sheet.appendRow([
+    "Month",
+    "Campaign",
+    "Ad Group",
+    "Keyword",
+    "Impressions",
+    "Impression Share",
+    "Eligible Impressions",
+    "Lost IS (Budget)",
+    "Lost IS (Rank)"
+  ]);
+
+  while (report.hasNext()) {
+
+    var row = report.next();
+
+    var month = row.segments.month;
+    var campaign = row.campaign.name;
+    var adgroup = row.adGroup.name;
+    var keyword = row.adGroupCriterion.keyword.text;
+
+    var impressions = row.metrics.impressions || 0;
+    var imprShare = row.metrics.searchImpressionShare || 0;
+    var lostBudget = row.metrics.searchBudgetLostImpressionShare || 0;
+    var lostRank = row.metrics.searchRankLostImpressionShare || 0;
+
+    var eligibleImpr = 0;
+
+    if (imprShare > 0) {
+      eligibleImpr = impressions / imprShare;
+    }
+
+    sheet.appendRow([
+      month,
+      campaign,
+      adgroup,
+      keyword,
+      impressions,
+      imprShare,
+      Math.round(eligibleImpr),
+      lostBudget,
+      lostRank
+    ]);
+  }
+
+  Logger.log("Spreadsheet Created: " + spreadsheet.getUrl());
+}
+
+/********************************************************
+ DATE HELPER
+********************************************************/
+
+function getLast12Months() {
+
+  var today = new Date();
+
+  var endDate = new Date(today.getFullYear(), today.getMonth(), 0);
+  var startDate = new Date(today.getFullYear(), today.getMonth() - 12, 1);
+
+  return {
+    start: formatDate(startDate),
+    end: formatDate(endDate)
+  };
+}
+
+function formatDate(date) {
+  return date.getFullYear() + "-" +
+    pad(date.getMonth() + 1, 2) + "-" +
+    pad(date.getDate(), 2);
+}
+
+function pad(num, size) {
+  var s = num + "";
+  while (s.length < size) s = "0" + s;
+  return s;
+}
