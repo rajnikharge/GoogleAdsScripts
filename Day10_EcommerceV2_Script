@@ -1,0 +1,239 @@
+
+var CONFIG = {
+  SHEET_URL: "PASTE_SHEET_URL",
+
+  DATE_CURRENT: "LAST_30_DAYS",
+  DATE_PREV: "PREVIOUS_30_DAYS",
+
+  PROFIT_MARGIN_DEFAULT: 0.30,
+  REFUND_RATE_DEFAULT: 0.05,
+
+  SCALE_ROAS: 4,
+  KILL_COST_NO_CONV: 3000,
+
+  ANOMALY_THRESHOLD: 2.2
+};
+
+/************** MAIN **************/
+function main(){
+
+  var sheet = SpreadsheetApp.openByUrl(CONFIG.SHEET_URL);
+
+  var skuData = getSkuPerformance();
+
+  processProfitLayer(sheet, skuData);
+  processLifecycle(sheet, skuData);
+  processMomentum(sheet, skuData);
+  processScaleKill(sheet, skuData);
+
+  processQueryIntent(sheet);
+  detectCpcInflation(sheet);
+  detectAnomalies(sheet);
+
+}
+
+/************** SKU DATA CORE **************/
+function getSkuPerformance(){
+
+  var map = {};
+
+  var report = AdsApp.report(
+    "SELECT OfferId, Cost, ConversionValue, Conversions, Clicks " +
+    "FROM SHOPPING_PERFORMANCE_REPORT " +
+    "DURING " + CONFIG.DATE_CURRENT
+  );
+
+  var rows = report.rows();
+
+  while(rows.hasNext()){
+
+    var r = rows.next();
+    var sku = r["OfferId"];
+
+    var cost = parseFloat(r["Cost"]);
+    var revenue = parseFloat(r["ConversionValue"]);
+    var conv = parseFloat(r["Conversions"]);
+    var clicks = parseFloat(r["Clicks"]);
+
+    var profit = (revenue * CONFIG.PROFIT_MARGIN_DEFAULT);
+    var refundAdjRevenue = revenue * (1 - CONFIG.REFUND_RATE_DEFAULT);
+    var profitRoas = profit / cost;
+
+    map[sku] = {
+      cost: cost,
+      revenue: revenue,
+      conversions: conv,
+      clicks: clicks,
+      profit: profit,
+      profitRoas: profitRoas,
+      refundAdjRevenue: refundAdjRevenue
+    };
+
+  }
+
+  return map;
+}
+
+/************** PROFIT INTEL **************/
+function processProfitLayer(sheet, data){
+
+  for(var sku in data){
+
+    var d = data[sku];
+
+    write(sheet,"SKU_PROFIT_INTEL",[
+      new Date(),
+      sku,
+      d.cost,
+      d.revenue,
+      d.profit,
+      d.profitRoas
+    ]);
+
+  }
+}
+
+/************** LIFECYCLE MODEL **************/
+function processLifecycle(sheet,data){
+
+  for(var sku in data){
+
+    var d = data[sku];
+
+    var stage = "STABLE";
+
+    if(d.clicks < 50 && d.conversions < 3){
+      stage = "LAUNCH";
+    }
+    else if(d.profitRoas > 5){
+      stage = "SCALE";
+    }
+    else if(d.profitRoas < 1.5){
+      stage = "DECLINE";
+    }
+
+    write(sheet,"SKU_LIFECYCLE",[new Date(),sku,stage]);
+
+  }
+}
+
+/************** MOMENTUM MODEL **************/
+function processMomentum(sheet,data){
+
+  for(var sku in data){
+
+    var d = data[sku];
+
+    var score = (d.conversions * 2) + (d.profitRoas * 3);
+
+    write(sheet,"TREND_MOMENTUM",[new Date(),sku,score]);
+
+  }
+}
+
+/************** SCALE / KILL **************/
+function processScaleKill(sheet,data){
+
+  for(var sku in data){
+
+    var d = data[sku];
+
+    if(d.profitRoas > CONFIG.SCALE_ROAS){
+      write(sheet,"SCALE_OPPORTUNITIES",[new Date(),sku,"SCALE"]);
+    }
+
+    if(d.cost > CONFIG.KILL_COST_NO_CONV && d.conversions == 0){
+      write(sheet,"KILL_CANDIDATES",[new Date(),sku,"KILL"]);
+    }
+
+  }
+}
+
+/************** QUERY INTENT **************/
+function processQueryIntent(sheet){
+
+  var report = AdsApp.report(
+    "SELECT Query, Cost, Conversions " +
+    "FROM SEARCH_QUERY_PERFORMANCE_REPORT " +
+    "DURING " + CONFIG.DATE_CURRENT
+  );
+
+  var rows = report.rows();
+
+  while(rows.hasNext()){
+
+    var r = rows.next();
+
+    var intent = "GENERIC";
+
+    if(r["Query"].toLowerCase().indexOf("buy") > -1){
+      intent = "HIGH_INTENT";
+    }
+
+    write(sheet,"QUERY_INTENT_MAP",[
+      new Date(),
+      r["Query"],
+      intent,
+      r["Cost"],
+      r["Conversions"]
+    ]);
+
+  }
+
+}
+
+/************** CPC INFLATION **************/
+function detectCpcInflation(sheet){
+
+  var report = AdsApp.report(
+    "SELECT CampaignName, AverageCpc " +
+    "FROM CAMPAIGN_PERFORMANCE_REPORT " +
+    "DURING " + CONFIG.DATE_CURRENT
+  );
+
+  var rows = report.rows();
+
+  while(rows.hasNext()){
+    var r = rows.next();
+
+    if(parseFloat(r["AverageCpc"]) > 2 * 50){
+      write(sheet,"CPC_INFLATION",[new Date(),r["CampaignName"],r["AverageCpc"]]);
+    }
+  }
+}
+
+/************** ANOMALY DETECTION **************/
+function detectAnomalies(sheet){
+
+  var report = AdsApp.report(
+    "SELECT CampaignName, Cost, Conversions " +
+    "FROM CAMPAIGN_PERFORMANCE_REPORT " +
+    "DURING " + CONFIG.DATE_CURRENT
+  );
+
+  var rows = report.rows();
+
+  while(rows.hasNext()){
+
+    var r = rows.next();
+
+    var cost = parseFloat(r["Cost"]);
+    var conv = parseFloat(r["Conversions"]);
+
+    if(cost > 2000 && conv == 0){
+      write(sheet,"ANOMALY_DETECTION",[new Date(),r["CampaignName"],"SPEND_NO_RETURN"]);
+    }
+
+  }
+
+}
+
+/************** WRITE **************/
+function write(sheet,tab,row){
+
+  var t = sheet.getSheetByName(tab);
+  if(!t) t = sheet.insertSheet(tab);
+
+  t.appendRow(row);
+
+}
