@@ -1,0 +1,174 @@
+/******************************************************
+ SEARCH TERM VISIBILITY ANALYZER
+ Classifies traffic into:
+ - Exact Query Match
+ - Close Variant Query
+ - Hidden Query (Estimated Residual)
+******************************************************/
+
+var CONFIG = {
+  SHEET_URL: "PASTE_SHEET_URL_HERE",
+  DATE_RANGE: "LAST_30_DAYS"
+};
+
+function main() {
+
+  var sheet = SpreadsheetApp.openByUrl(CONFIG.SHEET_URL);
+
+  var keywordStats = getKeywordTotals();
+  var queryStats = getQueryTotals();
+
+  analyzeMatchTypes(sheet, keywordStats, queryStats);
+
+  Logger.log("Search Term Analysis Completed");
+}
+
+/**************** KEYWORD TOTAL DATA ****************/
+function getKeywordTotals(){
+
+  var map = {};
+
+  var report = AdsApp.report(
+    "SELECT CampaignName, AdGroupName, Criteria, Clicks, Impressions, Cost, Conversions " +
+    "FROM KEYWORDS_PERFORMANCE_REPORT " +
+    "WHERE Status = ENABLED " +
+    "DURING " + CONFIG.DATE_RANGE
+  );
+
+  var rows = report.rows();
+
+  while(rows.hasNext()){
+
+    var r = rows.next();
+    var key = r["CampaignName"] + "|" + r["AdGroupName"] + "|" + r["Criteria"];
+
+    map[key] = {
+      keyword: r["Criteria"],
+      campaign: r["CampaignName"],
+      adgroup: r["AdGroupName"],
+      clicks: parseFloat(r["Clicks"]),
+      impr: parseFloat(r["Impressions"]),
+      cost: parseFloat(r["Cost"]),
+      conv: parseFloat(r["Conversions"])
+    };
+  }
+
+  return map;
+}
+
+/**************** QUERY DATA ****************/
+function getQueryTotals(){
+
+  var map = {};
+
+  var report = AdsApp.report(
+    "SELECT CampaignName, AdGroupName, Query, KeywordTextMatchingQuery, Clicks, Impressions, Cost, Conversions " +
+    "FROM SEARCH_QUERY_PERFORMANCE_REPORT " +
+    "DURING " + CONFIG.DATE_RANGE
+  );
+
+  var rows = report.rows();
+
+  while(rows.hasNext()){
+
+    var r = rows.next();
+
+    var keyword = r["KeywordTextMatchingQuery"];
+    var key = r["CampaignName"] + "|" + r["AdGroupName"] + "|" + keyword;
+
+    if(!map[key]){
+      map[key] = {
+        exactClicks: 0,
+        variantClicks: 0,
+        exactCost: 0,
+        variantCost: 0,
+        exactConv: 0,
+        variantConv: 0
+      };
+    }
+
+    var query = r["Query"].toLowerCase().trim();
+    var kw = keyword.toLowerCase().trim();
+
+    if(query === kw){
+      map[key].exactClicks += parseFloat(r["Clicks"]);
+      map[key].exactCost += parseFloat(r["Cost"]);
+      map[key].exactConv += parseFloat(r["Conversions"]);
+    } else {
+      map[key].variantClicks += parseFloat(r["Clicks"]);
+      map[key].variantCost += parseFloat(r["Cost"]);
+      map[key].variantConv += parseFloat(r["Conversions"]);
+    }
+  }
+
+  return map;
+}
+
+/**************** ANALYSIS ****************/
+function analyzeMatchTypes(sheet, keywordStats, queryStats){
+
+  var tab = getOrCreateSheet(sheet, "MATCH_TYPE_ANALYSIS");
+
+  tab.clear();
+  tab.appendRow([
+    "Date",
+    "Campaign",
+    "AdGroup",
+    "Keyword",
+    "Keyword Clicks",
+    "Exact Clicks",
+    "Variant Clicks",
+    "Hidden Clicks (Est)",
+    "Keyword Cost",
+    "Exact Cost",
+    "Variant Cost",
+    "Hidden Cost (Est)",
+    "Keyword Conv",
+    "Exact Conv",
+    "Variant Conv",
+    "Hidden Conv (Est)"
+  ]);
+
+  for(var key in keywordStats){
+
+    var kwData = keywordStats[key];
+    var qData = queryStats[key] || {
+      exactClicks:0, variantClicks:0,
+      exactCost:0, variantCost:0,
+      exactConv:0, variantConv:0
+    };
+
+    var hiddenClicks = kwData.clicks - (qData.exactClicks + qData.variantClicks);
+    var hiddenCost = kwData.cost - (qData.exactCost + qData.variantCost);
+    var hiddenConv = kwData.conv - (qData.exactConv + qData.variantConv);
+
+    tab.appendRow([
+      new Date(),
+      kwData.campaign,
+      kwData.adgroup,
+      kwData.keyword,
+      kwData.clicks,
+      qData.exactClicks,
+      qData.variantClicks,
+      hiddenClicks,
+      kwData.cost,
+      qData.exactCost,
+      qData.variantCost,
+      hiddenCost,
+      kwData.conv,
+      qData.exactConv,
+      qData.variantConv,
+      hiddenConv
+    ]);
+  }
+}
+
+/**************** HELPERS ****************/
+function getOrCreateSheet(sheet, name){
+
+  var s = sheet.getSheetByName(name);
+  if(!s){
+    s = sheet.insertSheet(name);
+  }
+  return s;
+}
