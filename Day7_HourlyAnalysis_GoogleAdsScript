@@ -1,0 +1,145 @@
+/******************************************************
+ HOURLY PERFORMANCE ANALYSIS - LAST MONTH
+ Author: Custom Script
+ Description:
+ - Pulls last month hourly data
+ - Calculates key metrics
+ - Finds best performing hours
+ - Emails detailed report
+******************************************************/
+
+function main() {
+
+  var EMAIL = "nikhargaraj@gmail.com";
+
+  // Get last month's date range automatically
+  var dateRange = getLastMonthDateRange();
+
+  var query = `
+    SELECT
+      segments.hour,
+      metrics.impressions,
+      metrics.clicks,
+      metrics.cost_micros,
+      metrics.conversions
+    FROM customer
+    WHERE segments.date BETWEEN '${dateRange.start}' AND '${dateRange.end}'
+  `;
+
+  var report = AdsApp.search(query);
+
+  // Store hourly data
+  var hourlyData = {};
+
+  for (var i = 0; i < 24; i++) {
+    hourlyData[i] = {
+      impressions: 0,
+      clicks: 0,
+      cost: 0,
+      conversions: 0
+    };
+  }
+
+  // Aggregate data
+  while (report.hasNext()) {
+    var row = report.next();
+    var hr = row.segments.hour;
+
+    hourlyData[hr].impressions += row.metrics.impressions;
+    hourlyData[hr].clicks += row.metrics.clicks;
+    hourlyData[hr].cost += row.metrics.costMicros / 1000000;
+    hourlyData[hr].conversions += row.metrics.conversions;
+  }
+
+  // Build report table
+  var output = [];
+  output.push("HOURLY PERFORMANCE ANALYSIS - LAST MONTH\n");
+  output.push("Date Range: " + dateRange.start + " to " + dateRange.end + "\n");
+  output.push("------------------------------------------------------------\n");
+  output.push("Hour | Impr | Clicks | Cost | Conv | CVR | CPA\n");
+  output.push("------------------------------------------------------------\n");
+
+  var ranking = [];
+
+  for (var hr = 0; hr < 24; hr++) {
+
+    var data = hourlyData[hr];
+
+    var ctr = data.clicks > 0 ? data.clicks / data.impressions : 0;
+    var cvr = data.conversions > 0 ? data.conversions / data.clicks : 0;
+    var cpa = data.conversions > 0 ? data.cost / data.conversions : data.cost;
+
+    ranking.push({
+      hour: hr,
+      conversions: data.conversions,
+      cpa: cpa,
+      cvr: cvr
+    });
+
+    output.push(
+      pad(hr,2) + " | " +
+      data.impressions.toFixed(0) + " | " +
+      data.clicks.toFixed(0) + " | " +
+      data.cost.toFixed(2) + " | " +
+      data.conversions.toFixed(2) + " | " +
+      (cvr * 100).toFixed(2) + "% | " +
+      cpa.toFixed(2) + "\n"
+    );
+  }
+
+  // Rank best hours
+  ranking.sort(function(a, b) {
+    return (b.conversions - a.conversions) || (a.cpa - b.cpa);
+  });
+
+  output.push("\n\n⭐ BEST PERFORMING HOURS (Top 5)\n");
+  output.push("------------------------------------------------------------\n");
+
+  for (var i = 0; i < 5; i++) {
+    output.push(
+      "Rank " + (i+1) +
+      " → Hour: " + ranking[i].hour +
+      " | Conversions: " + ranking[i].conversions.toFixed(2) +
+      " | CPA: " + ranking[i].cpa.toFixed(2) +
+      " | CVR: " + (ranking[i].cvr * 100).toFixed(2) + "%\n"
+    );
+  }
+
+  // Send Email
+  MailApp.sendEmail({
+    to: EMAIL,
+    subject: "Google Ads - Hourly Performance Analysis (Last Month)",
+    body: output.join("")
+  });
+
+  Logger.log("Report Sent Successfully");
+
+}
+
+/******************************************************
+ HELPER FUNCTIONS
+******************************************************/
+
+function getLastMonthDateRange() {
+
+  var today = new Date();
+  var firstDayLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  var lastDayLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+
+  return {
+    start: formatDate(firstDayLastMonth),
+    end: formatDate(lastDayLastMonth)
+  };
+}
+
+function formatDate(date) {
+  return date.getFullYear() +
+    "-" + pad(date.getMonth() + 1, 2) +
+    "-" + pad(date.getDate(), 2);
+}
+
+function pad(num, size) {
+  var s = num + "";
+  while (s.length < size) s = "0" + s;
+  return s;
+}
