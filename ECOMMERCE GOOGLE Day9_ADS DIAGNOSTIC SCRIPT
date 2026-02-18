@@ -1,0 +1,272 @@
+/******************************************************
+ EXTREME ECOMMERCE GOOGLE ADS DIAGNOSTIC SCRIPT
+ Version: Enterprise Deep Audit
+ Frequency: Monthly Recommended
+******************************************************/
+
+var CONFIG = {
+  SPREADSHEET_URL: "PASTE_YOUR_SHEET_URL",
+  DATE_RANGE_CURRENT: "LAST_30_DAYS",
+  DATE_RANGE_PREVIOUS: "PREVIOUS_30_DAYS",
+  ROAS_ALERT: 2.0,
+  CPA_ALERT: 1500,
+  IMPRESSION_SHARE_ALERT: 0.5,
+  HIGH_COST_NO_CONV: 2000
+};
+
+/************** MAIN **************/
+function main() {
+
+  var sheet = SpreadsheetApp.openByUrl(CONFIG.SPREADSHEET_URL);
+
+  analyzeAccountLevel(sheet);
+  analyzeCampaignLevel(sheet);
+  analyzeShoppingProducts(sheet);
+  analyzeSearchTermWaste(sheet);
+  analyzeDevicePerformance(sheet);
+  analyzeTimePerformance(sheet);
+  analyzeGeoPerformance(sheet);
+
+  Logger.log("Extreme Ecommerce Audit Completed");
+}
+
+/************** ACCOUNT LEVEL **************/
+function analyzeAccountLevel(sheet){
+
+  var report = AdsApp.report(
+    "SELECT Cost, Conversions, ConversionValue, Clicks, Impressions " +
+    "FROM ACCOUNT_PERFORMANCE_REPORT " +
+    "DURING " + CONFIG.DATE_RANGE_CURRENT
+  );
+
+  var rows = report.rows();
+
+  var totalCost = 0;
+  var totalConv = 0;
+  var totalRevenue = 0;
+  var totalClicks = 0;
+  var totalImpr = 0;
+
+  while(rows.hasNext()){
+    var r = rows.next();
+    totalCost += parseFloat(r["Cost"]);
+    totalConv += parseFloat(r["Conversions"]);
+    totalRevenue += parseFloat(r["ConversionValue"]);
+    totalClicks += parseFloat(r["Clicks"]);
+    totalImpr += parseFloat(r["Impressions"]);
+  }
+
+  var roas = totalRevenue / totalCost;
+  var cpa = totalCost / (totalConv || 1);
+  var ctr = totalClicks / totalImpr;
+
+  writeRow(sheet, "ACCOUNT_SUMMARY", [
+    new Date(),
+    totalCost,
+    totalRevenue,
+    totalConv,
+    roas,
+    cpa,
+    ctr
+  ]);
+}
+
+/************** CAMPAIGN LEVEL **************/
+function analyzeCampaignLevel(sheet){
+
+  var report = AdsApp.report(
+    "SELECT CampaignName, Cost, Conversions, ConversionValue, SearchImpressionShare " +
+    "FROM CAMPAIGN_PERFORMANCE_REPORT " +
+    "WHERE Cost > 0 " +
+    "DURING " + CONFIG.DATE_RANGE_CURRENT
+  );
+
+  var rows = report.rows();
+
+  while(rows.hasNext()){
+    var r = rows.next();
+
+    var cost = parseFloat(r["Cost"]);
+    var conv = parseFloat(r["Conversions"]);
+    var revenue = parseFloat(r["ConversionValue"]);
+    var roas = revenue / cost;
+
+    var alert = "";
+
+    if(roas < CONFIG.ROAS_ALERT){
+      alert += "LOW_ROAS | ";
+    }
+
+    if(parseFloat(r["SearchImpressionShare"]) < CONFIG.IMPRESSION_SHARE_ALERT){
+      alert += "LOW_IS | ";
+    }
+
+    writeRow(sheet, "CAMPAIGN_ANALYSIS", [
+      new Date(),
+      r["CampaignName"],
+      cost,
+      conv,
+      revenue,
+      roas,
+      alert
+    ]);
+  }
+}
+
+/************** PRODUCT LEVEL (SHOPPING / PMAX SIGNAL) **************/
+function analyzeShoppingProducts(sheet){
+
+  var report = AdsApp.report(
+    "SELECT OfferId, Cost, Conversions, ConversionValue, Clicks " +
+    "FROM SHOPPING_PERFORMANCE_REPORT " +
+    "WHERE Clicks > 10 " +
+    "DURING " + CONFIG.DATE_RANGE_CURRENT
+  );
+
+  var rows = report.rows();
+
+  while(rows.hasNext()){
+    var r = rows.next();
+
+    var cost = parseFloat(r["Cost"]);
+    var revenue = parseFloat(r["ConversionValue"]);
+    var roas = revenue / cost;
+
+    var status = "OK";
+
+    if(cost > CONFIG.HIGH_COST_NO_CONV && revenue == 0){
+      status = "KILL_PRODUCT";
+    }
+
+    if(roas > 4){
+      status = "SCALE_PRODUCT";
+    }
+
+    writeRow(sheet, "PRODUCT_ANALYSIS", [
+      new Date(),
+      r["OfferId"],
+      cost,
+      revenue,
+      roas,
+      status
+    ]);
+  }
+}
+
+/************** SEARCH TERM WASTE **************/
+function analyzeSearchTermWaste(sheet){
+
+  var report = AdsApp.report(
+    "SELECT Query, Cost, Conversions, Clicks " +
+    "FROM SEARCH_QUERY_PERFORMANCE_REPORT " +
+    "WHERE Clicks > 5 " +
+    "DURING " + CONFIG.DATE_RANGE_CURRENT
+  );
+
+  var rows = report.rows();
+
+  while(rows.hasNext()){
+    var r = rows.next();
+
+    var cost = parseFloat(r["Cost"]);
+    var conv = parseFloat(r["Conversions"]);
+
+    if(cost > CONFIG.HIGH_COST_NO_CONV && conv == 0){
+
+      writeRow(sheet, "WASTE_SEARCH_TERMS", [
+        new Date(),
+        r["Query"],
+        cost,
+        "ADD_NEGATIVE"
+      ]);
+    }
+  }
+}
+
+/************** DEVICE ANALYSIS **************/
+function analyzeDevicePerformance(sheet){
+
+  var report = AdsApp.report(
+    "SELECT Device, Cost, Conversions, ConversionValue " +
+    "FROM CAMPAIGN_PERFORMANCE_REPORT " +
+    "DURING " + CONFIG.DATE_RANGE_CURRENT
+  );
+
+  var rows = report.rows();
+
+  while(rows.hasNext()){
+    var r = rows.next();
+
+    var cost = parseFloat(r["Cost"]);
+    var revenue = parseFloat(r["ConversionValue"]);
+    var roas = revenue / cost;
+
+    writeRow(sheet, "DEVICE_ANALYSIS", [
+      new Date(),
+      r["Device"],
+      cost,
+      revenue,
+      roas
+    ]);
+  }
+}
+
+/************** TIME ANALYSIS **************/
+function analyzeTimePerformance(sheet){
+
+  var report = AdsApp.report(
+    "SELECT DayOfWeek, HourOfDay, Cost, Conversions, ConversionValue " +
+    "FROM CAMPAIGN_PERFORMANCE_REPORT " +
+    "DURING " + CONFIG.DATE_RANGE_CURRENT
+  );
+
+  var rows = report.rows();
+
+  while(rows.hasNext()){
+    var r = rows.next();
+
+    writeRow(sheet, "TIME_ANALYSIS", [
+      new Date(),
+      r["DayOfWeek"],
+      r["HourOfDay"],
+      r["Cost"],
+      r["ConversionValue"]
+    ]);
+  }
+}
+
+/************** GEO ANALYSIS **************/
+function analyzeGeoPerformance(sheet){
+
+  var report = AdsApp.report(
+    "SELECT CountryCriteriaId, RegionCriteriaId, Cost, ConversionValue " +
+    "FROM GEO_PERFORMANCE_REPORT " +
+    "DURING " + CONFIG.DATE_RANGE_CURRENT
+  );
+
+  var rows = report.rows();
+
+  while(rows.hasNext()){
+    var r = rows.next();
+
+    writeRow(sheet, "GEO_ANALYSIS", [
+      new Date(),
+      r["CountryCriteriaId"],
+      r["RegionCriteriaId"],
+      r["Cost"],
+      r["ConversionValue"]
+    ]);
+  }
+}
+
+/************** HELPER **************/
+function writeRow(sheet, tabName, row){
+
+  var tab = sheet.getSheetByName(tabName);
+
+  if(!tab){
+    tab = sheet.insertSheet(tabName);
+  }
+
+  tab.appendRow(row);
+}
