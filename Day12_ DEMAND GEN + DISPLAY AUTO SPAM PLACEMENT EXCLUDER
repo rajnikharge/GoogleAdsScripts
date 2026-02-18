@@ -1,0 +1,168 @@
+/********************************************************
+ DEMAND GEN + DISPLAY AUTO SPAM PLACEMENT EXCLUDER
+ Enterprise Placement Hygiene Automation
+********************************************************/
+
+var CONFIG = {
+
+  EXCLUSION_LIST_NAME: "AUTO_SPAM_PLACEMENT_EXCLUSIONS",
+  DATE_RANGE: "LAST_30_DAYS",
+
+  // Spam Domain Patterns
+  SPAM_TLDS: [
+    ".xyz",".top",".gq",".cf",".ml",".tk",".work",".click",".fit",".review",".country",".stream",".download",".loan",".win",".bio"
+  ],
+
+  // Spam Content Words
+  SPAM_WORDS: [
+    "game","free","stream","watch","download","torrent","apk","mod","crack",
+    "bet","casino","porn","xxx","hack","cheat","earn fast","crypto giveaway"
+  ],
+
+  // Simulated Ngram Spam Indicators (expandable)
+  SPAM_NGRAMS: [
+    "free movie download",
+    "watch series free",
+    "earn money fast",
+    "apk premium unlocked",
+    "casino bonus free",
+    "crypto double money"
+  ]
+
+};
+
+/**************** MAIN ****************/
+
+function main(){
+
+  var exclusionList = getOrCreateExclusionList(CONFIG.EXCLUSION_LIST_NAME);
+
+  var campaigns = getTargetCampaigns();
+
+  campaigns.forEach(function(campaign){
+
+    Logger.log("Scanning Campaign: " + campaign.getName());
+
+    scanPlacements(campaign, exclusionList);
+
+  });
+
+}
+
+/**************** CAMPAIGN FILTER ****************/
+
+function getTargetCampaigns(){
+
+  var arr = [];
+
+  var displayCampaigns = AdsApp.displayCampaigns()
+    .withCondition("Status = ENABLED")
+    .get();
+
+  while(displayCampaigns.hasNext()){
+    arr.push(displayCampaigns.next());
+  }
+
+  // Demand Gen campaigns are treated under video / multi-channel surfaces
+  var videoCampaigns = AdsApp.videoCampaigns()
+    .withCondition("Status = ENABLED")
+    .get();
+
+  while(videoCampaigns.hasNext()){
+    arr.push(videoCampaigns.next());
+  }
+
+  return arr;
+}
+
+/**************** PLACEMENT SCANNER ****************/
+
+function scanPlacements(campaign, exclusionList){
+
+  var placements = campaign.display().placements().get();
+
+  while(placements.hasNext()){
+
+    var placement = placements.next();
+    var url = placement.getUrl();
+
+    if(!url) continue;
+
+    if(isSpamPlacement(url)){
+
+      Logger.log("Excluding: " + url);
+
+      addToExclusionList(exclusionList, url);
+
+      try{
+        campaign.display().newPlacementBuilder()
+          .withUrl(url)
+          .exclude();
+      } catch(e){
+        Logger.log("Already excluded or not eligible: " + url);
+      }
+
+    }
+
+  }
+
+}
+
+/**************** SPAM LOGIC ****************/
+
+function isSpamPlacement(url){
+
+  var lowerUrl = url.toLowerCase();
+
+  // TLD Check
+  for(var i=0;i<CONFIG.SPAM_TLDS.length;i++){
+    if(lowerUrl.indexOf(CONFIG.SPAM_TLDS[i]) > -1){
+      return true;
+    }
+  }
+
+  // Word Pattern Check
+  for(var j=0;j<CONFIG.SPAM_WORDS.length;j++){
+    if(lowerUrl.indexOf(CONFIG.SPAM_WORDS[j]) > -1){
+      return true;
+    }
+  }
+
+  // Ngram Pattern Check
+  for(var k=0;k<CONFIG.SPAM_NGRAMS.length;k++){
+    if(lowerUrl.indexOf(CONFIG.SPAM_NGRAMS[k]) > -1){
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**************** EXCLUSION LIST HANDLER ****************/
+
+function getOrCreateExclusionList(name){
+
+  var lists = AdsApp.excludedPlacementLists()
+    .withCondition("Name = '" + name + "'")
+    .get();
+
+  if(lists.hasNext()){
+    return lists.next();
+  }
+
+  return AdsApp.newExcludedPlacementListBuilder()
+    .withName(name)
+    .build()
+    .getResult();
+
+}
+
+function addToExclusionList(list, url){
+
+  try{
+    list.addExcludedPlacement(url);
+  } catch(e){
+    Logger.log("Already exists in list: " + url);
+  }
+
+}
