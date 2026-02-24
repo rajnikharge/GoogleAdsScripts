@@ -1,0 +1,42 @@
+function main() {
+
+  var COST_LIMIT = 2000; // Change if needed
+  var DATE_RANGE = "LAST_14_DAYS";
+
+  var query = `
+    SELECT 
+      campaign.name,
+      ad_group.name,
+      ad_group_criterion.criterion_id,
+      ad_group_criterion.keyword.text,
+      metrics.cost_micros,
+      metrics.conversions
+    FROM keyword_view
+    WHERE 
+      segments.date DURING ${DATE_RANGE}
+      AND ad_group_criterion.status = 'ENABLED'
+  `;
+
+  var report = AdsApp.search(query);
+
+  while (report.hasNext()) {
+    var row = report.next();
+    
+    var cost = row.metrics.costMicros / 1000000;
+    var conversions = row.metrics.conversions;
+
+    if (cost > COST_LIMIT && conversions == 0) {
+      
+      var keyword = AdsApp
+        .keywords()
+        .withIds([[row.adGroupCriterion.criterionId]])
+        .get()
+        .next();
+
+      keyword.pause();
+
+      Logger.log("Paused: " + row.adGroupCriterion.keyword.text + 
+                 " | Cost: ₹" + cost);
+    }
+  }
+}
