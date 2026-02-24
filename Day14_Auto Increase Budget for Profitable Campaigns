@@ -1,0 +1,34 @@
+function main() {
+
+  var DATE_RANGE = "LAST_30_DAYS";
+  var GOOD_CPA = 800;
+  var BAD_CPA = 1500;
+  var INCREASE_PERCENT = 1.15;
+  var DECREASE_PERCENT = 0.90;
+
+  var campaigns = AdsApp
+    .campaigns()
+    .withCondition("Status = ENABLED")
+    .get();
+
+  while (campaigns.hasNext()) {
+    var campaign = campaigns.next();
+    var stats = campaign.getStatsFor(DATE_RANGE);
+
+    var conversions = stats.getConversions();
+    var cost = stats.getCost();
+    var cpa = cost / conversions;
+
+    if (conversions >= 20 && cpa < GOOD_CPA) {
+      var newBudget = campaign.getBudget().getAmount() * INCREASE_PERCENT;
+      campaign.getBudget().setAmount(newBudget);
+      Logger.log("Increased Budget: " + campaign.getName());
+    }
+
+    if (conversions > 0 && cpa > BAD_CPA) {
+      var newBudget = campaign.getBudget().getAmount() * DECREASE_PERCENT;
+      campaign.getBudget().setAmount(newBudget);
+      Logger.log("Decreased Budget: " + campaign.getName());
+    }
+  }
+}
