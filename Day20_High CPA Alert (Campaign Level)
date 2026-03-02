@@ -1,0 +1,19 @@
+function main() {
+  var email = "nikhargeraj@gmail.com";
+  var report = AdsApp.report(
+    "SELECT CampaignName, CostPerConversion " +
+    "FROM CAMPAIGN_PERFORMANCE_REPORT " +
+    "WHERE CostPerConversion > 2000 " +
+    "DURING LAST_30_DAYS");
+
+  var rows = report.rows();
+  var message = "High CPA Campaigns:\n\n";
+
+  while (rows.hasNext()) {
+    var row = rows.next();
+    message += row['CampaignName'] +
+               " | CPA: ₹" + row['CostPerConversion'] + "\n";
+  }
+
+  MailApp.sendEmail(email, "High CPA Alert", message);
+}
