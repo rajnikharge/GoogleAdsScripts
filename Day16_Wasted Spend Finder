@@ -1,0 +1,19 @@
+function main() {
+  var email = "nikhargeraj@gmail.com";
+  var report = AdsApp.report(
+    "SELECT Criteria, Cost, Conversions " +
+    "FROM KEYWORDS_PERFORMANCE_REPORT " +
+    "WHERE Conversions = 0 AND Cost > 1000 " +
+    "DURING LAST_30_DAYS");
+
+  var rows = report.rows();
+  var message = "High Spend, Zero Conversion Keywords:\n\n";
+
+  while (rows.hasNext()) {
+    var row = rows.next();
+    message += row['Criteria'] + 
+               " | Cost: ₹" + row['Cost'] + "\n";
+  }
+
+  MailApp.sendEmail(email, "Zero Conversion Waste Report", message);
+}
