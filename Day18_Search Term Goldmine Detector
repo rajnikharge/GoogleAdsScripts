@@ -1,0 +1,20 @@
+function main() {
+  var email = "nikhargeraj@gmail.com";
+  var report = AdsApp.report(
+    "SELECT Query, Conversions, AverageCpc " +
+    "FROM SEARCH_QUERY_PERFORMANCE_REPORT " +
+    "WHERE Conversions > 2 AND AverageCpc < 20 " +
+    "DURING LAST_30_DAYS");
+
+  var rows = report.rows();
+  var message = "High Converting Low CPC Search Terms:\n\n";
+
+  while (rows.hasNext()) {
+    var row = rows.next();
+    message += row['Query'] +
+               " | Conv: " + row['Conversions'] +
+               " | Avg CPC: ₹" + row['AverageCpc'] + "\n";
+  }
+
+  MailApp.sendEmail(email, "Search Term Goldmine Report", message);
+}
