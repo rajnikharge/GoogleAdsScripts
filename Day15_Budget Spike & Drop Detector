@@ -1,0 +1,38 @@
+function main() {
+  var email = "nikhargeraj@gmail.com";
+  var report = AdsApp.report(
+    "SELECT CampaignName, Cost " +
+    "FROM CAMPAIGN_PERFORMANCE_REPORT " +
+    "DURING YESTERDAY");
+
+  var yesterday = {};
+  var rows = report.rows();
+  while (rows.hasNext()) {
+    var row = rows.next();
+    yesterday[row['CampaignName']] = parseFloat(row['Cost']);
+  }
+
+  var report2 = AdsApp.report(
+    "SELECT CampaignName, Cost " +
+    "FROM CAMPAIGN_PERFORMANCE_REPORT " +
+    "DURING TODAY");
+
+  var message = "Campaign Budget Spike/Drop Alert:\n\n";
+  var rows2 = report2.rows();
+
+  while (rows2.hasNext()) {
+    var row2 = rows2.next();
+    var name = row2['CampaignName'];
+    var todayCost = parseFloat(row2['Cost']);
+    var yCost = yesterday[name] || 0;
+
+    if (yCost > 0) {
+      var change = ((todayCost - yCost) / yCost) * 100;
+      if (Math.abs(change) > 40) {
+        message += name + " | Change: " + change.toFixed(2) + "%\n";
+      }
+    }
+  }
+
+  MailApp.sendEmail(email, "Google Ads Budget Spike Alert", message);
+}
