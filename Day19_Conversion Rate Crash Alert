@@ -1,0 +1,19 @@
+function main() {
+  var email = "nikhargeraj@gmail.com";
+  var report = AdsApp.report(
+    "SELECT CampaignName, Clicks, ConversionRate " +
+    "FROM CAMPAIGN_PERFORMANCE_REPORT " +
+    "WHERE Clicks > 100 AND ConversionRate < 1 " +
+    "DURING LAST_7_DAYS");
+
+  var rows = report.rows();
+  var message = "Low Conversion Rate Campaigns:\n\n";
+
+  while (rows.hasNext()) {
+    var row = rows.next();
+    message += row['CampaignName'] +
+               " | Conv Rate: " + row['ConversionRate'] + "%\n";
+  }
+
+  MailApp.sendEmail(email, "Conversion Rate Crash Alert", message);
+}
