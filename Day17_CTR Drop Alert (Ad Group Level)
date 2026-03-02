@@ -1,0 +1,19 @@
+function main() {
+  var email = "nikhargeraj@gmail.com";
+  var report = AdsApp.report(
+    "SELECT AdGroupName, Ctr, Impressions " +
+    "FROM ADGROUP_PERFORMANCE_REPORT " +
+    "WHERE Impressions > 500 AND Ctr < 2 " +
+    "DURING LAST_7_DAYS");
+
+  var rows = report.rows();
+  var message = "Low CTR Ad Groups (<2%):\n\n";
+
+  while (rows.hasNext()) {
+    var row = rows.next();
+    message += row['AdGroupName'] + 
+               " | CTR: " + row['Ctr'] + "%\n";
+  }
+
+  MailApp.sendEmail(email, "Low CTR Alert", message);
+}
