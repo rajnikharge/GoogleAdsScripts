@@ -1,0 +1,21 @@
+function main() {
+
+  var keywords = AdsApp.keywords()
+  .withCondition("Status = ENABLED")
+  .get();
+
+  while (keywords.hasNext()) {
+
+    var kw = keywords.next();
+
+    var today = kw.getStatsFor("TODAY").getAverageCpc();
+    var lastWeek = kw.getStatsFor("LAST_7_DAYS").getAverageCpc();
+
+    if (today > lastWeek * 1.4) {
+
+      Logger.log("CPC Spike: " + kw.getText());
+
+    }
+
+  }
+}
