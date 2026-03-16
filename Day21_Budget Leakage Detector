@@ -1,0 +1,17 @@
+function main() {
+  var campaigns = AdsApp.campaigns()
+  .withCondition("Status = ENABLED")
+  .get();
+
+  while (campaigns.hasNext()) {
+    var campaign = campaigns.next();
+    var stats = campaign.getStatsFor("TODAY");
+
+    var cost = stats.getCost();
+    var budget = campaign.getBudget().getAmount();
+
+    if (cost > budget * 0.8 && new Date().getHours() < 12) {
+      Logger.log("Budget leaking early: " + campaign.getName());
+    }
+  }
+}
