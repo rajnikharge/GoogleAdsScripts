@@ -1,0 +1,28 @@
+function main(){
+
+  var day = new Date().getDay();
+
+  if(day == 0 || day == 6){
+
+    var campaigns = AdsApp.campaigns().get();
+
+    while(campaigns.hasNext()){
+
+      var c = campaigns.next();
+
+      var stats = c.getStatsFor("LAST_30_DAYS");
+
+      var cpa = stats.getCost()/stats.getConversions();
+
+      if(cpa > 2000){
+
+        c.pause();
+        Logger.log("Paused Weekend Waste: "+c.getName());
+
+      }
+
+    }
+
+  }
+
+}
