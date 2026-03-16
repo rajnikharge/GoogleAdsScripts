@@ -1,0 +1,19 @@
+function main(){
+
+var report = AdsApp.report(
+"SELECT CountryCriteriaId, Conversions, Cost FROM GEO_PERFORMANCE_REPORT DURING LAST_30_DAYS"
+);
+
+var rows = report.rows();
+
+while(rows.hasNext()){
+
+var row = rows.next();
+
+var cpa = row["Cost"]/row["Conversions"];
+
+Logger.log("Geo CPA: "+row["CountryCriteriaId"]+" = "+cpa);
+
+}
+
+}
