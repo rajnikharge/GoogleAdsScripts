@@ -1,0 +1,20 @@
+function main(){
+
+var ads = AdsApp.ads().get();
+
+while(ads.hasNext()){
+
+var ad = ads.next();
+
+var today = ad.getStatsFor("YESTERDAY").getCtr();
+var avg = ad.getStatsFor("LAST_14_DAYS").getCtr();
+
+if(today < avg * 0.65){
+
+Logger.log("CTR Drop Detected: "+ad.getId());
+
+}
+
+}
+
+}
