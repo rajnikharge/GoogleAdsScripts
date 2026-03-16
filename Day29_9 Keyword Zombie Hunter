@@ -1,0 +1,21 @@
+function main(){
+
+var keywords = AdsApp.keywords().get();
+
+while(keywords.hasNext()){
+
+var kw = keywords.next();
+
+var stats = kw.getStatsFor("LAST_90_DAYS");
+
+if(stats.getCost() > 500 && stats.getConversions() == 0){
+
+kw.pause();
+
+Logger.log("Zombie Keyword Paused: "+kw.getText());
+
+}
+
+}
+
+}
