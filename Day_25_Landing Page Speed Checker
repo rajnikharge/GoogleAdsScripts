@@ -1,0 +1,15 @@
+function main(){
+
+var ads = AdsApp.ads().get();
+
+while(ads.hasNext()){
+
+var ad = ads.next();
+
+var url = ad.urls().getFinalUrl();
+
+Logger.log("Check Speed For: "+url);
+
+}
+
+}
