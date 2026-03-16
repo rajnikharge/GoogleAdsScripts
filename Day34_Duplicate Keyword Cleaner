@@ -1,0 +1,29 @@
+function main(){
+
+var keywords = AdsApp.keywords().get();
+
+var map = {};
+
+while(keywords.hasNext()){
+
+var kw = keywords.next();
+
+var text = kw.getText();
+
+if(map[text]){
+
+kw.pause();
+
+Logger.log("Duplicate Paused: "+text);
+
+}
+
+else{
+
+map[text] = true;
+
+}
+
+}
+
+}
