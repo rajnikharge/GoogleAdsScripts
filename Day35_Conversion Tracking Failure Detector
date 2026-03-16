@@ -1,0 +1,16 @@
+function main(){
+
+var account = AdsApp.currentAccount();
+
+var stats = account.getStatsFor("YESTERDAY");
+
+var clicks = stats.getClicks();
+var conv = stats.getConversions();
+
+if(clicks > 50 && conv == 0){
+
+Logger.log("WARNING: Conversion Tracking May Be Broken");
+
+}
+
+}
