@@ -1,0 +1,20 @@
+function main(){
+
+var ads = AdsApp.ads().get();
+
+while(ads.hasNext()){
+
+var ad = ads.next();
+
+var lifetime = ad.getStatsFor("ALL_TIME").getCtr();
+var last7 = ad.getStatsFor("LAST_7_DAYS").getCtr();
+
+if(last7 < lifetime * 0.6){
+
+Logger.log("Ad Fatigue: "+ad.getId());
+
+}
+
+}
+
+}
