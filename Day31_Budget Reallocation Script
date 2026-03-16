@@ -1,0 +1,25 @@
+function main(){
+
+var campaigns = AdsApp.campaigns().get();
+
+while(campaigns.hasNext()){
+
+var c = campaigns.next();
+
+var stats = c.getStatsFor("LAST_30_DAYS");
+
+var cpa = stats.getCost()/stats.getConversions();
+
+if(cpa < 500){
+
+var budget = c.getBudget().getAmount();
+
+c.getBudget().setAmount(budget*1.2);
+
+Logger.log("Budget Increased: "+c.getName());
+
+}
+
+}
+
+}
