@@ -1,0 +1,21 @@
+function main(){
+
+var report = AdsApp.report(
+"SELECT DayOfWeek, Clicks, Conversions " +
+"FROM ACCOUNT_PERFORMANCE_REPORT DURING LAST_30_DAYS");
+
+var rows = report.rows();
+
+var text="";
+
+while(rows.hasNext()){
+
+var row = rows.next();
+
+text+=row['DayOfWeek']+" Clicks:"+row['Clicks']+" Conv:"+row['Conversions']+"\n";
+
+}
+
+MailApp.sendEmail("nikhargeraj@gmail.com","Day Performance Report",text);
+
+}
