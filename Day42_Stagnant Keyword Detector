@@ -1,0 +1,21 @@
+function main(){
+
+var report = AdsApp.report(
+"SELECT Criteria, Impressions, Clicks " +
+"FROM KEYWORDS_PERFORMANCE_REPORT DURING LAST_30_DAYS");
+
+var rows = report.rows();
+
+while(rows.hasNext()){
+
+var row = rows.next();
+
+if(row['Clicks'] < 5 && row['Impressions'] > 200){
+
+MailApp.sendEmail("nikhargeraj@gmail.com","Stagnant Keyword",row['Criteria']);
+
+}
+
+}
+
+}
