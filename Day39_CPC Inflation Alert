@@ -1,0 +1,23 @@
+function main(){
+
+var report = AdsApp.report(
+"SELECT CampaignName, AverageCpc " +
+"FROM CAMPAIGN_PERFORMANCE_REPORT DURING LAST_7_DAYS");
+
+var rows = report.rows();
+
+while(rows.hasNext()){
+
+var row = rows.next();
+
+var cpc = parseFloat(row['AverageCpc']);
+
+if(cpc > 2){
+
+MailApp.sendEmail("nikhargeraj@gmail.com","CPC Spike Alert",row['CampaignName']);
+
+}
+
+}
+
+}
