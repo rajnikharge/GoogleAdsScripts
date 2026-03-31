@@ -1,0 +1,33 @@
+function main() {
+
+var report = AdsApp.report(
+"SELECT CampaignName, AdGroupName, Criteria, Cost, Conversions " +
+"FROM KEYWORDS_PERFORMANCE_REPORT " +
+"WHERE Conversions = 0 AND Cost > 200 DURING LAST_30_DAYS");
+
+var rows = report.rows();
+
+while (rows.hasNext()) {
+
+var row = rows.next();
+
+var adgroup = AdsApp.adGroups()
+.withCondition("Name = '" + row['AdGroupName'] + "'")
+.get()
+.next();
+
+var keywords = adgroup.keywords()
+.withCondition("Text = '" + row['Criteria'] + "'")
+.get();
+
+if (keywords.hasNext()) {
+
+var keyword = keywords.next();
+
+keyword.pause();
+
+}
+
+}
+
+}
