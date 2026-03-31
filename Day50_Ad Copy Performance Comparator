@@ -1,0 +1,21 @@
+function main(){
+
+var report = AdsApp.report(
+"SELECT HeadlinePart1, Ctr, Conversions " +
+"FROM AD_PERFORMANCE_REPORT DURING LAST_30_DAYS");
+
+var rows = report.rows();
+
+var text="";
+
+while(rows.hasNext()){
+
+var row = rows.next();
+
+text+=row['HeadlinePart1']+" CTR:"+row['Ctr']+" Conv:"+row['Conversions']+"\n";
+
+}
+
+MailApp.sendEmail("nikhargeraj@gmail.com","Ad Copy Performance",text);
+
+}
