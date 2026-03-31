@@ -1,0 +1,23 @@
+function main(){
+
+var report = AdsApp.report(
+"SELECT CampaignName, ConversionValue " +
+"FROM CAMPAIGN_PERFORMANCE_REPORT DURING LAST_7_DAYS");
+
+var rows = report.rows();
+
+while(rows.hasNext()){
+
+var row = rows.next();
+
+var value = parseFloat(row['ConversionValue']);
+
+if(value < 100){
+
+MailApp.sendEmail("nikhargeraj@gmail.com","Conversion Value Drop",row['CampaignName']);
+
+}
+
+}
+
+}
