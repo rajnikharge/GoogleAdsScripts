@@ -1,0 +1,37 @@
+function main() {
+
+var report = AdsApp.report(
+"SELECT CampaignName, AdGroupName, Criteria, Impressions, Ctr, AverageCpc " +
+"FROM KEYWORDS_PERFORMANCE_REPORT " +
+"WHERE Impressions < 100 AND Ctr > 0.05 AND Status = ENABLED DURING LAST_30_DAYS");
+
+var rows = report.rows();
+
+while (rows.hasNext()) {
+
+var row = rows.next();
+
+var kw = row['Criteria'];
+
+var adgroup = AdsApp.adGroups()
+.withCondition("Name = '" + row['AdGroupName'] + "'")
+.get()
+.next();
+
+var keywords = adgroup.keywords()
+.withCondition("Text = '" + kw + "'")
+.get();
+
+if (keywords.hasNext()) {
+
+var keyword = keywords.next();
+
+var bid = keyword.bidding().getCpc();
+
+keyword.bidding().setCpc(bid * 1.15);
+
+}
+
+}
+
+}
