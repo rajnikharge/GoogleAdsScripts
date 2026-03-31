@@ -1,0 +1,17 @@
+function main(){
+
+var campaigns = AdsApp.campaigns().get();
+
+while(campaigns.hasNext()){
+
+var c = campaigns.next();
+
+var stats = c.getStatsFor("LAST_30_DAYS");
+
+var text=c.getName()+" Clicks:"+stats.getClicks()+" Conv:"+stats.getConversions();
+
+MailApp.sendEmail("nikhargeraj@gmail.com","Campaign Performance",text);
+
+}
+
+}
