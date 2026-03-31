@@ -1,0 +1,21 @@
+function main(){
+
+var report = AdsApp.report(
+"SELECT AdGroupName, Clicks, Conversions " +
+"FROM ADGROUP_PERFORMANCE_REPORT DURING LAST_30_DAYS");
+
+var rows = report.rows();
+
+while(rows.hasNext()){
+
+var row = rows.next();
+
+if(row['Clicks'] > 200 && row['Conversions'] < 1){
+
+MailApp.sendEmail("nikhargeraj@gmail.com","AdGroup Not Converting",row['AdGroupName']);
+
+}
+
+}
+
+}
