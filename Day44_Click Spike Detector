@@ -1,0 +1,21 @@
+function main(){
+
+var report = AdsApp.report(
+"SELECT CampaignName, Clicks " +
+"FROM CAMPAIGN_PERFORMANCE_REPORT DURING TODAY");
+
+var rows = report.rows();
+
+while(rows.hasNext()){
+
+var row = rows.next();
+
+if(row['Clicks'] > 500){
+
+MailApp.sendEmail("nikhargeraj@gmail.com","Click Spike Alert",row['CampaignName']);
+
+}
+
+}
+
+}
