@@ -1,0 +1,43 @@
+function main(){
+
+var report = AdsApp.report(
+"SELECT AdGroupName, Criteria, Clicks " +
+"FROM KEYWORDS_PERFORMANCE_REPORT DURING LAST_30_DAYS");
+
+var rows = report.rows();
+
+var data = {};
+
+while(rows.hasNext()){
+
+var row = rows.next();
+
+var ag = row['AdGroupName'];
+
+var clicks = parseFloat(row['Clicks']);
+
+if(!data[ag]){data[ag]=0;}
+
+data[ag]+=clicks;
+
+}
+
+rows = report.rows();
+
+while(rows.hasNext()){
+
+var row = rows.next();
+
+var ag = row['AdGroupName'];
+
+var clicks = parseFloat(row['Clicks']);
+
+if(clicks/data[ag] > 0.8){
+
+MailApp.sendEmail("nikhargeraj@gmail.com","AdGroup Imbalance",ag);
+
+}
+
+}
+
+}
