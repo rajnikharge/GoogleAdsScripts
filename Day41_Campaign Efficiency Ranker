@@ -1,0 +1,21 @@
+function main(){
+
+var report = AdsApp.report(
+"SELECT CampaignName, Ctr, ConversionRate, CostPerConversion " +
+"FROM CAMPAIGN_PERFORMANCE_REPORT DURING LAST_30_DAYS");
+
+var rows = report.rows();
+
+var text="";
+
+while(rows.hasNext()){
+
+var row=rows.next();
+
+text+=row['CampaignName']+" CTR:"+row['Ctr']+" CVR:"+row['ConversionRate']+" CPA:"+row['CostPerConversion']+"\n";
+
+}
+
+MailApp.sendEmail("nikhargeraj@gmail.com","Campaign Efficiency Report",text);
+
+}
